@@ -97,16 +97,29 @@ jobs:
 
       - name: Build macOS app (ReleaseLocal, unsigned)
         working-directory: macos
+        # Wrap xcodebuild in `script` to give it a PTY: Xcode 26's AssetCatalogAgent
+        # (used to rasterize the .icon Icon Composer bundle) crashes intermittently
+        # in headless environments otherwise. Build arm64-only since the runner is
+        # arm64 and a universal slice doubles asset-catalog work, which compounds
+        # the same flakiness.
         run: |
-          xcodebuild \
-            -target Ghostty \
-            -configuration ReleaseLocal \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM="" \
-            ONLY_ACTIVE_ARCH=NO
+          run_xcodebuild() {
+            script -q /dev/null xcodebuild \
+              -target Ghostty \
+              -configuration ReleaseLocal \
+              ARCHS=arm64 \
+              ONLY_ACTIVE_ARCH=YES \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGN_STYLE=Manual \
+              DEVELOPMENT_TEAM=""
+          }
+          if ! run_xcodebuild; then
+            echo "xcodebuild failed once — retrying after a brief pause"
+            sleep 10
+            run_xcodebuild
+          fi
 
       - name: Inject commit and build metadata into Info.plist
         env:
