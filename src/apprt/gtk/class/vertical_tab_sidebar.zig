@@ -416,4 +416,3 @@ pub const VerticalTabSidebar = extern struct {
         pub const bindTemplateCallback = C.Class.bindTemplateCallback;
     };
 };
-
