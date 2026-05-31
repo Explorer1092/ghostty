@@ -57,6 +57,12 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: 0.15.2
+          # The action's built-in cache keys by Zig version + OS only, so it
+          # restored poisoned object files left behind by an earlier run on
+          # a different macOS image (libSystem unresolved on macos-26).
+          # Skip its caching; our explicit Cache Zig step below is keyed on
+          # the runner image and stays clean.
+          use-cache: false
 
       # Zig's macOS native linker doesn't auto-discover the SDK on macos-26;
       # without SDKROOT it errors with `undefined symbol: _bzero` (and ~30
