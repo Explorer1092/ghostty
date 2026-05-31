@@ -58,6 +58,16 @@ jobs:
         with:
           version: 0.15.2
 
+      # Zig's macOS native linker doesn't auto-discover the SDK on macos-26;
+      # without SDKROOT it errors with `undefined symbol: _bzero` (and ~30
+      # other libSystem symbols) when linking the build runner.
+      - name: Configure macOS SDK for Zig
+        run: |
+          SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
+          echo "SDKROOT=$SDKROOT" >> "$GITHUB_ENV"
+          echo "Using SDK: $SDKROOT"
+          ls -la "$SDKROOT/usr/lib/libSystem.tbd" || ls -la "$SDKROOT/usr/lib/libSystem.dylib" || true
+
       - name: Cache Zig build outputs
         uses: actions/cache@v4
         with:
