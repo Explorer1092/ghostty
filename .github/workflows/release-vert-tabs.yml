@@ -56,12 +56,16 @@ jobs:
       - name: Install Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          # 0.15.2 is the build.zig.zon minimum, but its bundled compiler-rt
+          # references libSystem symbols (__availability_version_check, ...)
+          # that aren't exported by the macOS 26 SDK, so linking the build
+          # runner fails. 0.16.0 fixes this; the project's source still
+          # builds (0.16 is backward-compatible with the 0.15.2 floor).
+          version: 0.16.0
           # The action's built-in cache keys by Zig version + OS only, so it
           # restored poisoned object files left behind by an earlier run on
-          # a different macOS image (libSystem unresolved on macos-26).
-          # Skip its caching; our explicit Cache Zig step below is keyed on
-          # the runner image and stays clean.
+          # a different macOS image. Skip its caching; our explicit Cache
+          # Zig step below is keyed on the runner image and stays clean.
           use-cache: false
 
       # Zig's macOS native linker doesn't auto-discover the SDK on macos-26;
