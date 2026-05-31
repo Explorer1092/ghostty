@@ -18,12 +18,17 @@ permissions:
 jobs:
   build-macos:
     name: Build macOS app
-    # macos-26 (Tahoe, arm64) is needed because the Icon Composer .icon bundle
-    # in images/Ghostty.icon requires macOS 26's AssetCatalogAgent to rasterize.
-    # Earlier macos-latest images (Sonoma/Sequoia) lack that system service and
-    # actool dies with IBPlatformToolFailureException. The bare `macos-26` label
-    # resolves to the arm64 M1 runner; use `macos-26-intel` for x86_64.
-    runs-on: macos-26
+    # macos-15 is the sweet spot:
+    #   - Zig 0.15.2 (Ghostty's pinned minor) links fine against the macOS 15
+    #     SDK; the macOS 26 SDK exposes a different libSystem layout that 0.15
+    #     can't resolve.
+    #   - Xcode 26.x ships preinstalled, so we still get Swift 6.2 + the
+    #     `@available(macOS 26.0, *)` paths the source needs.
+    # Trade-off: Icon Composer (.icon) rasterization requires macOS 26's
+    # AssetCatalogAgent system service, which macos-15 doesn't have. We
+    # skip app-icon compilation below, so the CI build ships with the
+    # generic Finder icon. Local builds on macOS 26 keep the real icon.
+    runs-on: macos-15
     # Only run in this fork. Stops downstream forks from accidentally trying
     # to publish releases under their own repo.
     if: github.repository == 'Explorer1092/ghostty'
@@ -56,19 +61,16 @@ jobs:
       - name: Install Zig
         uses: mlugg/setup-zig@v2
         with:
-          # 0.15.2 is the build.zig.zon minimum, but its bundled compiler-rt
-          # references libSystem symbols (__availability_version_check, ...)
-          # that aren't exported by the macOS 26 SDK, so linking the build
-          # runner fails. 0.16.0 fixes this; the project's source still
-          # builds (0.16 is backward-compatible with the 0.15.2 floor).
-          version: 0.16.0
+          # Ghostty's requireZig() locks to 0.15.x exactly (major+minor must
+          # match), so we can't upgrade past it. 0.15.2 + macOS 15 SDK works.
+          version: 0.15.2
           # The action's built-in cache keys by Zig version + OS only, so it
           # restored poisoned object files left behind by an earlier run on
           # a different macOS image. Skip its caching; our explicit Cache
           # Zig step below is keyed on the runner image and stays clean.
           use-cache: false
 
-      # Zig's macOS native linker doesn't auto-discover the SDK on macos-26;
+      # Zig's macOS native linker doesn't auto-discover the SDK on macos-15;
       # without SDKROOT it errors with `undefined symbol: _bzero` (and ~30
       # other libSystem symbols) when linking the build runner.
       - name: Configure macOS SDK for Zig
@@ -78,7 +80,7 @@ jobs:
           echo "Using SDK: $SDKROOT"
           ls -la "$SDKROOT/usr/lib/libSystem.tbd" || ls -la "$SDKROOT/usr/lib/libSystem.dylib" || true
 
-      # Cache key includes the runner image label (e.g. `macos-26`) so we
+      # Cache key includes the runner image label (e.g. `macos-15`) so we
       # don't restore Zig object files compiled against a different SDK
       # across runner upgrades. Bump `v2` to force-miss after past misuses.
       - name: Cache Zig build outputs
@@ -88,10 +90,10 @@ jobs:
             ${{ env.ZIG_LOCAL_CACHE_DIR }}
             ${{ env.ZIG_GLOBAL_CACHE_DIR }}
             zig-out
-          key: zig-v2-macos-26-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-${{ github.sha }}
+          key: zig-v2-macos-15-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-${{ github.sha }}
           restore-keys: |
-            zig-v2-macos-26-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-
-            zig-v2-macos-26-${{ runner.arch }}-
+            zig-v2-macos-15-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-
+            zig-v2-macos-15-${{ runner.arch }}-
 
       - name: Cache Swift Package Manager (Sparkle, etc.)
         uses: actions/cache@v4
@@ -99,9 +101,9 @@ jobs:
           path: |
             ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
             ~/Library/Caches/org.swift.swiftpm
-          key: spm-v2-macos-26-${{ runner.arch }}-${{ hashFiles('macos/Ghostty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-v2-macos-15-${{ runner.arch }}-${{ hashFiles('macos/Ghostty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
-            spm-v2-macos-26-${{ runner.arch }}-
+            spm-v2-macos-15-${{ runner.arch }}-
 
       - name: Extract build metadata
         id: meta
@@ -123,11 +125,15 @@ jobs:
       - name: Build Zig core
         run: zig build -Doptimize=ReleaseFast -Demit-macos-app=false
 
-      - name: Build macOS app (ReleaseLocal, unsigned)
+      - name: Build macOS app (ReleaseLocal, unsigned, no app icon)
         working-directory: macos
         # arm64-only because the runner is arm64; producing a universal slice
         # would need x86_64 cross-compilation and we don't ship Intel for this
         # fork. ReleaseLocal is the project's unsigned Release variant.
+        #
+        # ASSETCATALOG_COMPILER_APPICON_NAME="" skips Icon Composer (.icon)
+        # processing — that requires macOS 26's AssetCatalogAgent which is
+        # absent on macos-15. The output app uses the generic Finder icon.
         run: |
           xcodebuild \
             -target Ghostty \
@@ -138,7 +144,8 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM=""
+            DEVELOPMENT_TEAM="" \
+            ASSETCATALOG_COMPILER_APPICON_NAME=""
 
       - name: Inject commit and build metadata into Info.plist
         env:
@@ -231,6 +238,8 @@ jobs:
             Or open the `.dmg` and drag the app into `Applications`, then run `xattr -dr com.apple.quarantine /Applications/Ghostty.app` (or wherever you put it).
 
             **This build is unsigned and not notarized.** Gatekeeper will refuse to launch it until you remove the quarantine attribute. Only do that for builds you trust.
+
+            **No custom app icon in CI builds.** GitHub's macOS runners don't yet ship macOS 26, which is required to rasterize Ghostty's new Icon Composer (`.icon`) icon. The CI build uses the generic Finder icon. Local builds on macOS 26 keep the real one.
 
             ## What's in this branch
 
