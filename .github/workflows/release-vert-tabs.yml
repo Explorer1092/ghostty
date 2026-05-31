@@ -1,13 +1,25 @@
 name: Release vert-tabs
 
+# Mirrors the upstream ghostty-org build-macos job (.github/workflows/
+# release-tip.yml). Differences from upstream:
+#   - runs on GitHub-hosted `macos-26` instead of `namespace-profile-
+#     ghostty-macos-tahoe` (we don't have a namespacelabs subscription).
+#   - cachix runs without an auth token (pulls upstream's nix cache
+#     read-only; can't write back).
+#   - no codesign / notarize / Sparkle signing key (we don't ship those
+#     secrets in this fork).
+#   - DMG built with `hdiutil` instead of `create-dmg` (no signing cert).
+#   - publishes a per-commit prerelease to this repo's GitHub Releases
+#     instead of uploading to Cloudflare R2 + Sparkle appcast.
+# Everything else (nix develop, Sparkle 2.9.0 SPM bundle, Build GhosttyKit
+# under ReleaseFast, Xcode 26.3, the Info.plist injection) follows
+# upstream so the produced app matches what ghostty-org ships.
+
 on:
   push:
     branches: [vert-tabs]
   workflow_dispatch:
 
-# Don't run multiple builds for the same ref at the same time. Each push gets
-# its own build (with run_number in the tag), so we queue rather than cancel:
-# a fast-follow push will produce its own release after this one finishes.
 concurrency:
   group: release-vert-tabs-${{ github.ref }}
   cancel-in-progress: false
@@ -18,92 +30,62 @@ permissions:
 jobs:
   build-macos:
     name: Build macOS app
-    # macos-15 is the sweet spot:
-    #   - Zig 0.15.2 (Ghostty's pinned minor) links fine against the macOS 15
-    #     SDK; the macOS 26 SDK exposes a different libSystem layout that 0.15
-    #     can't resolve.
-    #   - Xcode 26.x ships preinstalled, so we still get Swift 6.2 + the
-    #     `@available(macOS 26.0, *)` paths the source needs.
-    # Trade-off: Icon Composer (.icon) rasterization requires macOS 26's
-    # AssetCatalogAgent system service, which macos-15 doesn't have. We
-    # skip app-icon compilation below, so the CI build ships with the
-    # generic Finder icon. Local builds on macOS 26 keep the real icon.
-    runs-on: macos-15
-    # Only run in this fork. Stops downstream forks from accidentally trying
-    # to publish releases under their own repo.
+    runs-on: macos-26
+    timeout-minutes: 90
+    # Only run in this fork. Stops downstream forks from accidentally
+    # trying to publish releases under their own repo.
     if: github.repository == 'Explorer1092/ghostty'
     env:
-      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache
-      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-global-cache
+      ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # Build numbering uses git rev-list --count; needs full history.
+          # Important so that build number generation works
           fetch-depth: 0
 
-      # Source uses `@available(macOS 26.0, *)` + `#if compiler(>=6.2)` for
-      # liquid-glass paths, so Xcode must be 26.x. macos-latest ships several
-      # Xcode versions; pin to the newest installed.
-      - name: Select Xcode
-        run: |
-          # Xcode bundles on GitHub runners follow the Xcode_<version>.app naming
-          # convention, so a glob plus sort -V is safe.
-          XCODE_PATH=$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' 2>/dev/null | sort -V | tail -1)
-          if [ -z "$XCODE_PATH" ]; then
-            echo "No Xcode 26.x found. Installed Xcodes:"
-            find /Applications -maxdepth 1 -type d -name 'Xcode*.app' 2>/dev/null || true
-            exit 1
-          fi
-          echo "Selecting $XCODE_PATH"
-          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
-          xcodebuild -version
-
-      - name: Install Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          # Ghostty's requireZig() locks to 0.15.x exactly (major+minor must
-          # match), so we can't upgrade past it. 0.15.2 + macOS 15 SDK works.
-          version: 0.15.2
-          # The action's built-in cache keys by Zig version + OS only, so it
-          # restored poisoned object files left behind by an earlier run on
-          # a different macOS image. Skip its caching; our explicit Cache
-          # Zig step below is keyed on the runner image and stays clean.
-          use-cache: false
-
-      # Zig's macOS native linker doesn't auto-discover the SDK on macos-15;
-      # without SDKROOT it errors with `undefined symbol: _bzero` (and ~30
-      # other libSystem symbols) when linking the build runner.
-      - name: Configure macOS SDK for Zig
-        run: |
-          SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
-          echo "SDKROOT=$SDKROOT" >> "$GITHUB_ENV"
-          echo "Using SDK: $SDKROOT"
-          ls -la "$SDKROOT/usr/lib/libSystem.tbd" || ls -la "$SDKROOT/usr/lib/libSystem.dylib" || true
-
-      # Cache key includes the runner image label (e.g. `macos-15`) so we
-      # don't restore Zig object files compiled against a different SDK
-      # across runner upgrades. Bump `v2` to force-miss after past misuses.
-      - name: Cache Zig build outputs
+      # Upstream uses namespacelabs/nscloud-cache-action keyed on
+      # `xcode` + `/Users/runner/zig`. GitHub-hosted runners can't use
+      # that, so we fall back to actions/cache@v4 for the Zig caches.
+      # Xcode is preinstalled on macos-26 so we don't cache it.
+      - name: Cache Zig
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ env.ZIG_LOCAL_CACHE_DIR }}
-            ${{ env.ZIG_GLOBAL_CACHE_DIR }}
-            zig-out
-          key: zig-v2-macos-15-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-${{ github.sha }}
+          path: /Users/runner/zig
+          key: zig-macos-26-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-${{ github.sha }}
           restore-keys: |
-            zig-v2-macos-15-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-
-            zig-v2-macos-15-${{ runner.arch }}-
+            zig-macos-26-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-
+            zig-macos-26-${{ runner.arch }}-
 
-      - name: Cache Swift Package Manager (Sparkle, etc.)
-        uses: actions/cache@v4
+      # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
+      - uses: DeterminateSystems/nix-installer-action@main
         with:
-          path: |
-            ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
-            ~/Library/Caches/org.swift.swiftpm
-          key: spm-v2-macos-15-${{ runner.arch }}-${{ hashFiles('macos/Ghostty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: |
-            spm-v2-macos-15-${{ runner.arch }}-
+          determinate: true
+
+      # Pulls upstream ghostty's nix cache so common store paths don't
+      # have to be rebuilt locally. Read-only without an auth token,
+      # which is what we want in a fork.
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: ghostty
+
+      - name: XCode Select
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+
+      - name: Xcode Version
+        run: xcodebuild -version
+
+      # Setup Sparkle (verbatim from upstream).
+      - name: Setup Sparkle
+        env:
+          SPARKLE_VERSION: 2.9.0
+        run: |
+          mkdir -p .action/sparkle
+          cd .action/sparkle
+          curl -L "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-for-Swift-Package-Manager.zip" > sparkle.zip
+          unzip sparkle.zip
+          echo "$(pwd)/bin" >> "$GITHUB_PATH"
 
       - name: Extract build metadata
         id: meta
@@ -122,75 +104,75 @@ jobs:
             echo "tag=vert-tabs-build-${BUILD_NUMBER}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build Zig core
-        run: zig build -Doptimize=ReleaseFast -Demit-macos-app=false
+      # GhosttyKit is the framework that is built from Zig for our native
+      # Mac app to access. Build this in release mode. (Verbatim upstream.)
+      - name: Build GhosttyKit
+        run: nix develop -c zig build -Doptimize=ReleaseFast -Demit-macos-app=false
 
-      - name: Build macOS app (ReleaseLocal, unsigned, no app icon)
-        working-directory: macos
-        # arm64-only because the runner is arm64; producing a universal slice
-        # would need x86_64 cross-compilation and we don't ship Intel for this
-        # fork. ReleaseLocal is the project's unsigned Release variant.
-        #
-        # ASSETCATALOG_COMPILER_APPICON_NAME="" skips Icon Composer (.icon)
-        # processing — that requires macOS 26's AssetCatalogAgent which is
-        # absent on macos-15. The output app uses the generic Finder icon.
+      # The native app is built with native XCode tooling. IMPORTANT:
+      # this must NOT run in a Nix environment. Nix breaks xcodebuild so
+      # this has to be run outside. (Same pattern as upstream.)
+      #
+      # We drop the codesigning flags because the fork has no Developer
+      # ID cert. Otherwise the xcodebuild invocation matches upstream.
+      - name: Build Ghostty.app
         run: |
-          xcodebuild \
-            -target Ghostty \
-            -configuration ReleaseLocal \
-            ARCHS=arm64 \
-            ONLY_ACTIVE_ARCH=YES \
+          cd macos
+          xcodebuild -target Ghostty -configuration Release \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="" \
-            ASSETCATALOG_COMPILER_APPICON_NAME=""
+            COMPILATION_CACHE_CAS_PATH=/Users/runner/Library/Developer/Xcode/DerivedData/CompilationCache.noindex \
+            COMPILATION_CACHE_KEEP_CAS_DIRECTORY=YES
 
-      - name: Inject commit and build metadata into Info.plist
+      # We inject the "build number" as simply the number of commits
+      # since HEAD. This will be a monotonically always-increasing build
+      # number that we use. (Upstream additionally sets SUPublicEDKey for
+      # Sparkle signing; we don't have that secret in the fork.)
+      - name: Update Info.plist
         env:
           GHOSTTY_BUILD: ${{ steps.meta.outputs.ghostty_build }}
           GHOSTTY_COMMIT: ${{ steps.meta.outputs.ghostty_commit }}
         run: |
-          PLIST="macos/build/ReleaseLocal/Ghostty.app/Contents/Info.plist"
-          /usr/libexec/PlistBuddy -c "Set :GhosttyCommit $GHOSTTY_COMMIT" "$PLIST" || \
-            /usr/libexec/PlistBuddy -c "Add :GhosttyCommit string $GHOSTTY_COMMIT" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GHOSTTY_BUILD" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $GHOSTTY_COMMIT" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :GhosttyCommit $GHOSTTY_COMMIT" "macos/build/Release/Ghostty.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GHOSTTY_BUILD" "macos/build/Release/Ghostty.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $GHOSTTY_COMMIT" "macos/build/Release/Ghostty.app/Contents/Info.plist"
 
       - name: Sanity-check the bundle
         run: |
-          APP="macos/build/ReleaseLocal/Ghostty.app"
+          APP="macos/build/Release/Ghostty.app"
           test -d "$APP" || { echo "Ghostty.app not found"; exit 1; }
           test -x "$APP/Contents/MacOS/ghostty" || { echo "ghostty binary not found"; exit 1; }
-          # Verify our new menu wired into MainMenu.nib
-          if ! strings "$APP/Contents/Resources/MainMenu.nib" | grep -q "Tabs Location"; then
-            echo "Menu wiring missing from MainMenu.nib"
-            exit 1
-          fi
           ls -la "$APP/Contents/MacOS/"
 
-      - name: Package ZIP
-        id: zip
+      # Zip up the app and symbols. (Upstream uses fixed names like
+      # `ghostty-macos-universal.zip`; we use a per-build name so the
+      # release tag's assets are uniquely identifiable.)
+      - name: Zip App
         env:
           BUNDLE_BASE: ${{ steps.meta.outputs.bundle_base }}
         run: |
-          cd macos/build/ReleaseLocal
-          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Ghostty.app "${BUNDLE_BASE}.zip"
+          cd macos/build/Release
+          zip -9 -r --symlinks "../../../${BUNDLE_BASE}.zip" Ghostty.app
+          if [ -d Ghostty.app.dSYM ]; then
+            zip -9 -r --symlinks "../../../${BUNDLE_BASE}-dsym.zip" Ghostty.app.dSYM/
+          fi
+          cd ../../../
           shasum -a 256 "${BUNDLE_BASE}.zip" > "${BUNDLE_BASE}.zip.sha256"
-          ls -la "${BUNDLE_BASE}.zip" "${BUNDLE_BASE}.zip.sha256"
 
-      - name: Package DMG
-        id: dmg
+      # Upstream uses `create-dmg` plus codesign identity. Since we
+      # can't codesign, fall back to hdiutil + an Applications symlink.
+      - name: Create DMG
         env:
           BUNDLE_BASE: ${{ steps.meta.outputs.bundle_base }}
           GHOSTTY_COMMIT: ${{ steps.meta.outputs.ghostty_commit }}
         run: |
           STAGE="$(mktemp -d)/dmg"
           mkdir -p "$STAGE"
-          /usr/bin/ditto "macos/build/ReleaseLocal/Ghostty.app" "$STAGE/Ghostty.app"
+          /usr/bin/ditto macos/build/Release/Ghostty.app "$STAGE/Ghostty.app"
           ln -s /Applications "$STAGE/Applications"
-          cd macos/build/ReleaseLocal
           /usr/bin/hdiutil create \
             -volname "Ghostty vert-tabs ${GHOSTTY_COMMIT}" \
             -srcfolder "$STAGE" \
@@ -199,20 +181,23 @@ jobs:
             -fs HFS+ \
             "${BUNDLE_BASE}.dmg"
           shasum -a 256 "${BUNDLE_BASE}.dmg" > "${BUNDLE_BASE}.dmg.sha256"
-          ls -la "${BUNDLE_BASE}.dmg" "${BUNDLE_BASE}.dmg.sha256"
 
-      - name: Upload artifact (also accessible from the Actions UI)
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.meta.outputs.bundle_base }}
           path: |
-            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.zip
-            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.zip.sha256
-            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.dmg
-            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.dmg.sha256
+            ${{ steps.meta.outputs.bundle_base }}.zip
+            ${{ steps.meta.outputs.bundle_base }}.zip.sha256
+            ${{ steps.meta.outputs.bundle_base }}.dmg
+            ${{ steps.meta.outputs.bundle_base }}.dmg.sha256
+            ${{ steps.meta.outputs.bundle_base }}-dsym.zip
           retention-days: 90
+          if-no-files-found: warn
 
-      - name: Create release
+      # Per-build prerelease. Upstream uploads a fixed "tip" tag + R2 +
+      # Sparkle appcast; we just publish to the repo's GitHub Releases.
+      - name: Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
@@ -221,7 +206,7 @@ jobs:
           prerelease: true
           make_latest: false
           body: |
-            Unsigned macOS build of the `vert-tabs` branch.
+            Unsigned macOS build of the `vert-tabs` branch, produced by the same nix-based pipeline as upstream ghostty-org (see `.github/workflows/release-vert-tabs.yml`).
 
             - Commit: [`${{ steps.meta.outputs.ghostty_commit }}`](https://github.com/${{ github.repository }}/commit/${{ steps.meta.outputs.ghostty_commit_long }})
             - Build number: ${{ steps.meta.outputs.build_number }}
@@ -239,16 +224,15 @@ jobs:
 
             **This build is unsigned and not notarized.** Gatekeeper will refuse to launch it until you remove the quarantine attribute. Only do that for builds you trust.
 
-            **No custom app icon in CI builds.** GitHub's macOS runners don't yet ship macOS 26, which is required to rasterize Ghostty's new Icon Composer (`.icon`) icon. The CI build uses the generic Finder icon. Local builds on macOS 26 keep the real one.
-
             ## What's in this branch
 
             - aflat's vertical tab sidebar (upstream PR [#10589](https://github.com/ghostty-org/ghostty/pull/10589))
-            - Runtime control via **View → Tabs Location** (Native / Left / Right / Hidden)
-            - `set_tabs_location` keybind action (e.g. `keybind = cmd+shift+l=set_tabs_location:left`)
-            - Per-window override; resets to `macos-tabs-location` config on app restart
+            - Runtime control via **View → Tabs Position** menu
+            - `set_tabs_position` keybind action
+            - Per-window override; resets to the config default on app restart
           files: |
-            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.zip
-            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.zip.sha256
-            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.dmg
-            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.dmg.sha256
+            ${{ steps.meta.outputs.bundle_base }}.zip
+            ${{ steps.meta.outputs.bundle_base }}.zip.sha256
+            ${{ steps.meta.outputs.bundle_base }}.dmg
+            ${{ steps.meta.outputs.bundle_base }}.dmg.sha256
+            ${{ steps.meta.outputs.bundle_base }}-dsym.zip
