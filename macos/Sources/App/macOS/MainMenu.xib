@@ -357,32 +357,38 @@
                                     <action selector="toggleReadonly:" target="-1" id="Gqx-wT-K9v"/>
                                 </connections>
                             </menuItem>
-                            <menuItem title="Tabs Location" id="vtl-mn-001">
+                            <menuItem title="Tabs Position" id="vtl-mn-001">
                                 <modifierMask key="keyEquivalentModifierMask"/>
-                                <menu key="submenu" title="Tabs Location" id="vtl-su-002">
+                                <menu key="submenu" title="Tabs Position" id="vtl-su-002">
                                     <items>
-                                        <menuItem title="Native" id="vtl-na-003">
+                                        <menuItem title="Top" id="vtl-to-003">
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
-                                                <action selector="setTabsLocationNative:" target="-1" id="vtl-na-004"/>
+                                                <action selector="setTabsPositionTop:" target="-1" id="vtl-to-004"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Bottom" id="vtl-bo-011">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="setTabsPositionBottom:" target="-1" id="vtl-bo-012"/>
                                             </connections>
                                         </menuItem>
                                         <menuItem title="Left" id="vtl-le-005">
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
-                                                <action selector="setTabsLocationLeft:" target="-1" id="vtl-le-006"/>
+                                                <action selector="setTabsPositionLeft:" target="-1" id="vtl-le-006"/>
                                             </connections>
                                         </menuItem>
                                         <menuItem title="Right" id="vtl-ri-007">
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
-                                                <action selector="setTabsLocationRight:" target="-1" id="vtl-ri-008"/>
+                                                <action selector="setTabsPositionRight:" target="-1" id="vtl-ri-008"/>
                                             </connections>
                                         </menuItem>
                                         <menuItem title="Hidden" id="vtl-hi-009">
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
-                                                <action selector="setTabsLocationHidden:" target="-1" id="vtl-hi-010"/>
+                                                <action selector="setTabsPositionHidden:" target="-1" id="vtl-hi-010"/>
                                             </connections>
                                         </menuItem>
                                     </items>

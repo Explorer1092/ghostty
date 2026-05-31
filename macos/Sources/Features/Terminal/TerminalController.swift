@@ -50,10 +50,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// attaches this controller's window to the native tab group.
     private weak var verticalTabsParentWindow: NSWindow?
 
-    /// Per-window override of the tab location. When nil, the config-default
-    /// `macos-tabs-location` is used. Set via the View > Tabs Location menu or
-    /// the `set_tabs_location` keybind action. Not persisted across restarts.
-    @Published var tabsLocationOverride: Ghostty.MacOSTabsLocation?
+    /// The current position of the tab bar for this window. This is the
+    /// single source of truth - SwiftUI views and AppKit accessories alike
+    /// read this property. It is initialized from the `tabs-position`
+    /// configuration and may be changed at runtime via the View > Tabs Position
+    /// menu or the `set_tabs_position` keybind action. Not persisted across
+    /// restarts.
+    @Published var tabsPosition: Ghostty.TabsPosition
 
     /// Shared model for the vertical tab sidebar. Native macOS tabs swap the whole
     /// window content view, so each tab has its own SwiftUI sidebar instance. Sharing
@@ -107,6 +110,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Setup our initial derived config based on the current app config
         self.derivedConfig = DerivedConfig(ghostty.config)
+
+        // Initialize the tab position from the configuration. Once the
+        // controller is alive, this becomes the runtime source of truth.
+        self.tabsPosition = ghostty.config.tabsPosition
 
         super.init(ghostty, baseConfig: base, surfaceTree: tree)
 
@@ -167,8 +174,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         )
         center.addObserver(
             self,
-            selector: #selector(onSetTabsLocation),
-            name: .ghosttySetTabsLocation,
+            selector: #selector(onSetTabsPosition),
+            name: .ghosttySetTabsPosition,
             object: nil
         )
     }
@@ -296,7 +303,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let parent: NSWindow? = explicitParent ?? preferredParent?.window
         if let parentController = parent?.windowController as? TerminalController {
             c.isBackgroundOpaque = parentController.isBackgroundOpaque
-            c.tabsLocationOverride = parentController.tabsLocationOverride
+            c.tabsPosition = parentController.tabsPosition
         }
 
         if let parent, parent.styleMask.contains(.fullScreen) {
@@ -472,7 +479,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
         controller.verticalTabsParentWindow = parent
         controller.isBackgroundOpaque = parentController.isBackgroundOpaque
-        controller.tabsLocationOverride = parentController.tabsLocationOverride
+        controller.tabsPosition = parentController.tabsPosition
         guard let window = controller.window else { return controller }
 
         // If the parent is miniaturized, then macOS exhibits really strange behaviors
@@ -1431,37 +1438,29 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ghostty.toggleTerminalInspector(surface: surface)
     }
 
-    /// The currently effective tab location for this window: the per-window
-    /// override if set, otherwise the config default.
-    var effectiveTabsLocation: Ghostty.MacOSTabsLocation {
-        tabsLocationOverride ?? ghostty.config.macosTabsLocation
+    /// Apply a runtime tab position to the current window.
+    func setTabsPosition(_ position: Ghostty.TabsPosition) {
+        tabsPosition = position
     }
 
-    /// Apply a runtime tab location override to the current window. Setting
-    /// the override to the same value as the config default clears the
-    /// override so a future config change can take effect.
-    func setTabsLocation(_ location: Ghostty.MacOSTabsLocation) {
-        if location == ghostty.config.macosTabsLocation {
-            tabsLocationOverride = nil
-        } else {
-            tabsLocationOverride = location
-        }
+    @IBAction func setTabsPositionTop(_ sender: Any?) {
+        setTabsPosition(.top)
     }
 
-    @IBAction func setTabsLocationNative(_ sender: Any?) {
-        setTabsLocation(.native)
+    @IBAction func setTabsPositionBottom(_ sender: Any?) {
+        setTabsPosition(.bottom)
     }
 
-    @IBAction func setTabsLocationLeft(_ sender: Any?) {
-        setTabsLocation(.left)
+    @IBAction func setTabsPositionLeft(_ sender: Any?) {
+        setTabsPosition(.left)
     }
 
-    @IBAction func setTabsLocationRight(_ sender: Any?) {
-        setTabsLocation(.right)
+    @IBAction func setTabsPositionRight(_ sender: Any?) {
+        setTabsPosition(.right)
     }
 
-    @IBAction func setTabsLocationHidden(_ sender: Any?) {
-        setTabsLocation(.hidden)
+    @IBAction func setTabsPositionHidden(_ sender: Any?) {
+        setTabsPosition(.hidden)
     }
 
     // MARK: - TerminalViewDelegate
@@ -1639,13 +1638,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         closeWindow(self)
     }
 
-    @objc private func onSetTabsLocation(notification: SwiftUI.Notification) {
+    @objc private func onSetTabsPosition(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
-        guard let location = notification.userInfo?[
-            Notification.Name.GhosttySetTabsLocationKey
-        ] as? Ghostty.MacOSTabsLocation else { return }
-        setTabsLocation(location)
+        guard let position = notification.userInfo?[
+            Notification.Name.GhosttySetTabsPositionKey
+        ] as? Ghostty.TabsPosition else { return }
+        setTabsPosition(position)
     }
 
     @objc private func onResetWindowSize(notification: SwiftUI.Notification) {
@@ -1726,20 +1725,24 @@ extension TerminalController {
             // default size, then disable.
             return defaultSize?.isChanged(for: window) ?? false
 
-        case #selector(setTabsLocationNative(_:)):
-            item.state = effectiveTabsLocation == .native ? .on : .off
+        case #selector(setTabsPositionTop(_:)):
+            item.state = tabsPosition == .top ? .on : .off
             return true
 
-        case #selector(setTabsLocationLeft(_:)):
-            item.state = effectiveTabsLocation == .left ? .on : .off
+        case #selector(setTabsPositionBottom(_:)):
+            item.state = tabsPosition == .bottom ? .on : .off
             return true
 
-        case #selector(setTabsLocationRight(_:)):
-            item.state = effectiveTabsLocation == .right ? .on : .off
+        case #selector(setTabsPositionLeft(_:)):
+            item.state = tabsPosition == .left ? .on : .off
             return true
 
-        case #selector(setTabsLocationHidden(_:)):
-            item.state = effectiveTabsLocation == .hidden ? .on : .off
+        case #selector(setTabsPositionRight(_:)):
+            item.state = tabsPosition == .right ? .on : .off
+            return true
+
+        case #selector(setTabsPositionHidden(_:)):
+            item.state = tabsPosition == .hidden ? .on : .off
             return true
 
         default:

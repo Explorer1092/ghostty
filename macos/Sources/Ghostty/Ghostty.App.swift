@@ -659,8 +659,8 @@ extension Ghostty {
             case GHOSTTY_ACTION_PRESENT_TERMINAL:
                 return presentTerminal(app, target: target)
 
-            case GHOSTTY_ACTION_SET_TABS_LOCATION:
-                setTabsLocation(app, target: target, v: action.action.set_tabs_location)
+            case GHOSTTY_ACTION_SET_TABS_POSITION:
+                setTabsPosition(app, target: target, v: action.action.set_tabs_position)
 
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
                 fallthrough
@@ -964,23 +964,24 @@ extension Ghostty {
             }
         }
 
-        private static func setTabsLocation(
+        private static func setTabsPosition(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
-            v: ghostty_action_tabs_location_e
+            v: ghostty_action_tabs_position_e
         ) {
-            let location: Ghostty.MacOSTabsLocation
+            let position: Ghostty.TabsPosition
             switch v {
-            case GHOSTTY_TABS_LOCATION_NATIVE: location = .native
-            case GHOSTTY_TABS_LOCATION_LEFT: location = .left
-            case GHOSTTY_TABS_LOCATION_RIGHT: location = .right
-            case GHOSTTY_TABS_LOCATION_HIDDEN: location = .hidden
+            case GHOSTTY_TABS_POSITION_TOP: position = .top
+            case GHOSTTY_TABS_POSITION_BOTTOM: position = .bottom
+            case GHOSTTY_TABS_POSITION_LEFT: position = .left
+            case GHOSTTY_TABS_POSITION_RIGHT: position = .right
+            case GHOSTTY_TABS_POSITION_HIDDEN: position = .hidden
             default: return
             }
 
             switch target.tag {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("set tabs location does nothing with an app target")
+                Ghostty.logger.warning("set tabs position does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -988,9 +989,9 @@ extension Ghostty {
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
 
                 NotificationCenter.default.post(
-                    name: .ghosttySetTabsLocation,
+                    name: .ghosttySetTabsPosition,
                     object: surfaceView,
-                    userInfo: [SwiftUI.Notification.Name.GhosttySetTabsLocationKey: location]
+                    userInfo: [SwiftUI.Notification.Name.GhosttySetTabsPositionKey: position]
                 )
 
             default:

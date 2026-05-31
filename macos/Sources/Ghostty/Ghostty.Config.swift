@@ -368,15 +368,15 @@ extension Ghostty {
             return MacOSTitlebarStyle(rawValue: String(cString: ptr)) ?? defaultValue
         }
 
-        var macosTabsLocation: Ghostty.MacOSTabsLocation {
-            let defaultValue = Ghostty.MacOSTabsLocation.native
+        var tabsPosition: Ghostty.TabsPosition {
+            let defaultValue = Ghostty.TabsPosition.top
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>? = nil
-            let key = "macos-tabs-location"
+            let key = "tabs-position"
             guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
             guard let ptr = v else { return defaultValue }
             let str = String(cString: ptr)
-            return Ghostty.MacOSTabsLocation(rawValue: str) ?? defaultValue
+            return Ghostty.TabsPosition(rawValue: str) ?? defaultValue
         }
 
         var macosTabColor: Bool {

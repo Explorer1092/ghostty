@@ -967,20 +967,24 @@ class AppDelegate: NSObject,
         setSecureInput(.toggle)
     }
 
-    @IBAction func setTabsLocationNative(_ sender: Any?) {
-        TerminalController.preferredParent?.setTabsLocation(.native)
+    @IBAction func setTabsPositionTop(_ sender: Any?) {
+        TerminalController.preferredParent?.setTabsPosition(.top)
     }
 
-    @IBAction func setTabsLocationLeft(_ sender: Any?) {
-        TerminalController.preferredParent?.setTabsLocation(.left)
+    @IBAction func setTabsPositionBottom(_ sender: Any?) {
+        TerminalController.preferredParent?.setTabsPosition(.bottom)
     }
 
-    @IBAction func setTabsLocationRight(_ sender: Any?) {
-        TerminalController.preferredParent?.setTabsLocation(.right)
+    @IBAction func setTabsPositionLeft(_ sender: Any?) {
+        TerminalController.preferredParent?.setTabsPosition(.left)
     }
 
-    @IBAction func setTabsLocationHidden(_ sender: Any?) {
-        TerminalController.preferredParent?.setTabsLocation(.hidden)
+    @IBAction func setTabsPositionRight(_ sender: Any?) {
+        TerminalController.preferredParent?.setTabsPosition(.right)
+    }
+
+    @IBAction func setTabsPositionHidden(_ sender: Any?) {
+        TerminalController.preferredParent?.setTabsPosition(.hidden)
     }
 
     @IBAction func toggleQuickTerminal(_ sender: Any) {
@@ -1302,28 +1306,31 @@ extension AppDelegate: NSMenuItemValidation {
             }
             return undoManager.canRedo
 
-        case #selector(setTabsLocationNative(_:)),
-            #selector(setTabsLocationLeft(_:)),
-            #selector(setTabsLocationRight(_:)),
-            #selector(setTabsLocationHidden(_:)):
+        case #selector(setTabsPositionTop(_:)),
+            #selector(setTabsPositionBottom(_:)),
+            #selector(setTabsPositionLeft(_:)),
+            #selector(setTabsPositionRight(_:)),
+            #selector(setTabsPositionHidden(_:)):
             // Only reached if no TerminalController in the responder chain handled
-            // validation. Show the checkmark for the preferred parent's location
+            // validation. Show the checkmark for the preferred parent's position
             // when available; disable when no regular terminal window exists.
             guard let parent = TerminalController.preferredParent else {
                 item.state = .off
                 return false
             }
-            let target: Ghostty.MacOSTabsLocation
-            if item.action == #selector(setTabsLocationLeft(_:)) {
+            let target: Ghostty.TabsPosition
+            if item.action == #selector(setTabsPositionBottom(_:)) {
+                target = .bottom
+            } else if item.action == #selector(setTabsPositionLeft(_:)) {
                 target = .left
-            } else if item.action == #selector(setTabsLocationRight(_:)) {
+            } else if item.action == #selector(setTabsPositionRight(_:)) {
                 target = .right
-            } else if item.action == #selector(setTabsLocationHidden(_:)) {
+            } else if item.action == #selector(setTabsPositionHidden(_:)) {
                 target = .hidden
             } else {
-                target = .native
+                target = .top
             }
-            item.state = parent.effectiveTabsLocation == target ? .on : .off
+            item.state = parent.tabsPosition == target ? .on : .off
             return true
 
         default:

@@ -326,9 +326,10 @@ extension Ghostty {
         case stable
     }
     
-    /// Enum for macos-tabs-location config option
-    enum MacOSTabsLocation: String {
-        case native   // Use native macOS tab bar (default)
+    /// Enum for the tabs-position config option.
+    enum TabsPosition: String {
+        case top      // Horizontal tabs at the top of the window (default)
+        case bottom   // Horizontal tabs at the bottom of the window
         case left     // Vertical tabs on the left
         case right    // Vertical tabs on the right
         case hidden   // No tab UI (use keybinds only)
@@ -384,11 +385,11 @@ extension Notification.Name {
     /// Focus the search field
     static let ghosttySearchFocus = Notification.Name("com.mitchellh.ghostty.searchFocus")
 
-    /// Set the per-window tab location override. The notification object is the
+    /// Set the per-window tab position override. The notification object is the
     /// surface whose window should change. The userInfo contains the requested
-    /// `Ghostty.MacOSTabsLocation` under `GhosttySetTabsLocationKey`.
-    static let ghosttySetTabsLocation = Notification.Name("com.mitchellh.ghostty.setTabsLocation")
-    static let GhosttySetTabsLocationKey = ghosttySetTabsLocation.rawValue
+    /// `Ghostty.TabsPosition` under `GhosttySetTabsPositionKey`.
+    static let ghosttySetTabsPosition = Notification.Name("com.mitchellh.ghostty.setTabsPosition")
+    static let GhosttySetTabsPositionKey = ghosttySetTabsPosition.rawValue
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This

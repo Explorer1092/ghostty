@@ -252,22 +252,13 @@ class TerminalWindow: NSWindow {
     }
 
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
-        // Tab bar is attached as a titlebar accessory view controller (layout bottom). We
-        // can detect when it is shown or hidden by overriding add/remove and searching for
-        // it. This has been verified to work on macOS 12 to 26
+        // We always render our own tab UI now, so the system tab bar is
+        // unconditionally suppressed regardless of position. Other titlebar
+        // accessories pass through unchanged.
         if isTabBar(childViewController) {
-            // When using vertical tabs or hidden mode, don't add the tab bar at all
-            if derivedConfig.macosTabsLocation != .native {
-                // Don't call super - this prevents the tab bar from being added
-                return
-            }
-            
-            childViewController.identifier = Self.tabBarIdentifier
-            super.addTitlebarAccessoryViewController(childViewController)
-            tabBarDidAppear()
-        } else {
-            super.addTitlebarAccessoryViewController(childViewController)
+            return
         }
+        super.addTitlebarAccessoryViewController(childViewController)
     }
 
     override func removeTitlebarAccessoryViewController(at index: Int) {
@@ -596,7 +587,6 @@ class TerminalWindow: NSWindow {
         let macosWindowButtons: Ghostty.MacOSWindowButtons
         let macosTitlebarStyle: Ghostty.Config.MacOSTitlebarStyle
         let windowCornerRadius: CGFloat
-        let macosTabsLocation: Ghostty.MacOSTabsLocation
 
         init() {
             self.title = nil
@@ -606,7 +596,6 @@ class TerminalWindow: NSWindow {
             self.backgroundBlur = .disabled
             self.macosTitlebarStyle = .default
             self.windowCornerRadius = 16
-            self.macosTabsLocation = .native
         }
 
         init(_ config: Ghostty.Config) {
@@ -626,7 +615,6 @@ class TerminalWindow: NSWindow {
             default:
                 self.windowCornerRadius = 16
             }
-            self.macosTabsLocation = config.macosTabsLocation
         }
     }
 }
