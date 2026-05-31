@@ -1,0 +1,213 @@
+name: Release vert-tabs
+
+on:
+  push:
+    branches: [vert-tabs]
+  workflow_dispatch:
+
+# Don't run multiple builds for the same ref at the same time. Each push gets
+# its own build (with run_number in the tag), so we queue rather than cancel:
+# a fast-follow push will produce its own release after this one finishes.
+concurrency:
+  group: release-vert-tabs-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS app
+    runs-on: macos-latest
+    # Only run in this fork. Stops downstream forks from accidentally trying
+    # to publish releases under their own repo.
+    if: github.repository == 'Explorer1092/ghostty'
+    env:
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-global-cache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Build numbering uses git rev-list --count; needs full history.
+          fetch-depth: 0
+
+      # Source uses `@available(macOS 26.0, *)` + `#if compiler(>=6.2)` for
+      # liquid-glass paths, so Xcode must be 26.x. macos-latest ships several
+      # Xcode versions; pin to the newest installed.
+      - name: Select Xcode
+        run: |
+          # Xcode bundles on GitHub runners follow the Xcode_<version>.app naming
+          # convention, so a glob plus sort -V is safe.
+          XCODE_PATH=$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_PATH" ]; then
+            echo "No Xcode 26.x found. Installed Xcodes:"
+            find /Applications -maxdepth 1 -type d -name 'Xcode*.app' 2>/dev/null || true
+            exit 1
+          fi
+          echo "Selecting $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Cache Zig build outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ZIG_LOCAL_CACHE_DIR }}
+            ${{ env.ZIG_GLOBAL_CACHE_DIR }}
+            zig-out
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-${{ github.sha }}
+          restore-keys: |
+            zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-
+            zig-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Swift Package Manager (Sparkle, etc.)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('macos/Ghostty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Extract build metadata
+        id: meta
+        run: |
+          GHOSTTY_BUILD=$(git rev-list --count HEAD)
+          GHOSTTY_COMMIT=$(git rev-parse --short HEAD)
+          GHOSTTY_COMMIT_LONG=$(git rev-parse HEAD)
+          BUILD_NUMBER=${{ github.run_number }}
+          BUNDLE_BASE="Ghostty-vert-tabs-build${BUILD_NUMBER}-${GHOSTTY_COMMIT}"
+          {
+            echo "ghostty_build=$GHOSTTY_BUILD"
+            echo "ghostty_commit=$GHOSTTY_COMMIT"
+            echo "ghostty_commit_long=$GHOSTTY_COMMIT_LONG"
+            echo "build_number=$BUILD_NUMBER"
+            echo "bundle_base=$BUNDLE_BASE"
+            echo "tag=vert-tabs-build-${BUILD_NUMBER}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build Zig core
+        run: zig build -Doptimize=ReleaseFast -Demit-macos-app=false
+
+      - name: Build macOS app (ReleaseLocal, unsigned)
+        working-directory: macos
+        run: |
+          xcodebuild \
+            -target Ghostty \
+            -configuration ReleaseLocal \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            ONLY_ACTIVE_ARCH=NO
+
+      - name: Inject commit and build metadata into Info.plist
+        env:
+          GHOSTTY_BUILD: ${{ steps.meta.outputs.ghostty_build }}
+          GHOSTTY_COMMIT: ${{ steps.meta.outputs.ghostty_commit }}
+        run: |
+          PLIST="macos/build/ReleaseLocal/Ghostty.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :GhosttyCommit $GHOSTTY_COMMIT" "$PLIST" || \
+            /usr/libexec/PlistBuddy -c "Add :GhosttyCommit string $GHOSTTY_COMMIT" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GHOSTTY_BUILD" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $GHOSTTY_COMMIT" "$PLIST"
+
+      - name: Sanity-check the bundle
+        run: |
+          APP="macos/build/ReleaseLocal/Ghostty.app"
+          test -d "$APP" || { echo "Ghostty.app not found"; exit 1; }
+          test -x "$APP/Contents/MacOS/ghostty" || { echo "ghostty binary not found"; exit 1; }
+          # Verify our new menu wired into MainMenu.nib
+          if ! strings "$APP/Contents/Resources/MainMenu.nib" | grep -q "Tabs Location"; then
+            echo "Menu wiring missing from MainMenu.nib"
+            exit 1
+          fi
+          ls -la "$APP/Contents/MacOS/"
+
+      - name: Package ZIP
+        id: zip
+        env:
+          BUNDLE_BASE: ${{ steps.meta.outputs.bundle_base }}
+        run: |
+          cd macos/build/ReleaseLocal
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Ghostty.app "${BUNDLE_BASE}.zip"
+          shasum -a 256 "${BUNDLE_BASE}.zip" > "${BUNDLE_BASE}.zip.sha256"
+          ls -la "${BUNDLE_BASE}.zip" "${BUNDLE_BASE}.zip.sha256"
+
+      - name: Package DMG
+        id: dmg
+        env:
+          BUNDLE_BASE: ${{ steps.meta.outputs.bundle_base }}
+          GHOSTTY_COMMIT: ${{ steps.meta.outputs.ghostty_commit }}
+        run: |
+          STAGE="$(mktemp -d)/dmg"
+          mkdir -p "$STAGE"
+          /usr/bin/ditto "macos/build/ReleaseLocal/Ghostty.app" "$STAGE/Ghostty.app"
+          ln -s /Applications "$STAGE/Applications"
+          cd macos/build/ReleaseLocal
+          /usr/bin/hdiutil create \
+            -volname "Ghostty vert-tabs ${GHOSTTY_COMMIT}" \
+            -srcfolder "$STAGE" \
+            -ov \
+            -format UDZO \
+            -fs HFS+ \
+            "${BUNDLE_BASE}.dmg"
+          shasum -a 256 "${BUNDLE_BASE}.dmg" > "${BUNDLE_BASE}.dmg.sha256"
+          ls -la "${BUNDLE_BASE}.dmg" "${BUNDLE_BASE}.dmg.sha256"
+
+      - name: Upload artifact (also accessible from the Actions UI)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.bundle_base }}
+          path: |
+            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.zip
+            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.zip.sha256
+            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.dmg
+            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.dmg.sha256
+          retention-days: 90
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: vert-tabs build ${{ steps.meta.outputs.build_number }} (${{ steps.meta.outputs.ghostty_commit }})
+          target_commitish: ${{ steps.meta.outputs.ghostty_commit_long }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Unsigned macOS build of the `vert-tabs` branch.
+
+            - Commit: [`${{ steps.meta.outputs.ghostty_commit }}`](https://github.com/${{ github.repository }}/commit/${{ steps.meta.outputs.ghostty_commit_long }})
+            - Build number: ${{ steps.meta.outputs.build_number }}
+            - CFBundleVersion: `${{ steps.meta.outputs.ghostty_build }}`
+
+            ## Install
+
+            ```bash
+            unzip ${{ steps.meta.outputs.bundle_base }}.zip
+            xattr -dr com.apple.quarantine Ghostty.app
+            mv Ghostty.app /Applications/Ghostty-vert.app
+            ```
+
+            Or open the `.dmg` and drag the app into `Applications`, then run `xattr -dr com.apple.quarantine /Applications/Ghostty.app` (or wherever you put it).
+
+            **This build is unsigned and not notarized.** Gatekeeper will refuse to launch it until you remove the quarantine attribute. Only do that for builds you trust.
+
+            ## What's in this branch
+
+            - aflat's vertical tab sidebar (upstream PR [#10589](https://github.com/ghostty-org/ghostty/pull/10589))
+            - Runtime control via **View → Tabs Location** (Native / Left / Right / Hidden)
+            - `set_tabs_location` keybind action (e.g. `keybind = cmd+shift+l=set_tabs_location:left`)
+            - Per-window override; resets to `macos-tabs-location` config on app restart
+          files: |
+            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.zip
+            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.zip.sha256
+            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.dmg
+            macos/build/ReleaseLocal/${{ steps.meta.outputs.bundle_base }}.dmg.sha256
