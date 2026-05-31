@@ -108,6 +108,12 @@ pub const Action = union(Key) {
     /// Toggle tab overview.
     toggle_tab_overview,
 
+    /// Override the tab location for the targeted window at runtime.
+    /// The override is per-window state and does not modify the
+    /// `macos-tabs-location` config; it is reset when the app restarts.
+    /// Only implemented on macOS.
+    set_tabs_location: TabsLocation,
+
     /// Toggle whether window directions are shown.
     toggle_window_decorations,
 
@@ -354,6 +360,7 @@ pub const Action = union(Key) {
         toggle_maximize,
         toggle_fullscreen,
         toggle_tab_overview,
+        set_tabs_location,
         toggle_window_decorations,
         toggle_quick_terminal,
         toggle_command_palette,
@@ -562,6 +569,19 @@ pub const GotoTab = enum(c_int) {
     // test "ghostty.h GotoTab" {
     //     try lib.checkGhosttyHEnum(GotoTab, "GHOSTTY_GOTO_TAB_");
     // }
+};
+
+// This is made extern (c_int) to make interop easier with our embedded
+// runtime.
+pub const TabsLocation = enum(c_int) {
+    native,
+    left,
+    right,
+    hidden,
+
+    test "ghostty.h TabsLocation" {
+        try lib.checkGhosttyHEnum(TabsLocation, "GHOSTTY_TABS_LOCATION_");
+    }
 };
 
 /// The fullscreen mode to toggle to if we're moving to fullscreen.

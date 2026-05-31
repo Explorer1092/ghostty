@@ -438,6 +438,29 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Toggle the tab overview.",
         }},
 
+        .set_tabs_location => comptime &.{
+            .{
+                .action = .{ .set_tabs_location = .native },
+                .title = "Tabs Location: Native",
+                .description = "Use the native macOS horizontal tab bar.",
+            },
+            .{
+                .action = .{ .set_tabs_location = .left },
+                .title = "Tabs Location: Left",
+                .description = "Show vertical tabs on the left side of the window.",
+            },
+            .{
+                .action = .{ .set_tabs_location = .right },
+                .title = "Tabs Location: Right",
+                .description = "Show vertical tabs on the right side of the window.",
+            },
+            .{
+                .action = .{ .set_tabs_location = .hidden },
+                .title = "Tabs Location: Hidden",
+                .description = "Hide the tab bar in the current window.",
+            },
+        },
+
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = "Change Terminal Title…",

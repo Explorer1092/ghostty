@@ -5379,6 +5379,17 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .set_tabs_location => |loc| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .set_tabs_location,
+            switch (loc) {
+                .native => .native,
+                .left => .left,
+                .right => .right,
+                .hidden => .hidden,
+            },
+        ),
+
         .toggle_window_float_on_top => return try self.rt_app.performAction(
             .{ .surface = self },
             .float_window,
