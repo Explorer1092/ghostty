@@ -18,7 +18,12 @@ permissions:
 jobs:
   build-macos:
     name: Build macOS app
-    runs-on: macos-latest
+    # macos-26 (Tahoe, arm64) is needed because the Icon Composer .icon bundle
+    # in images/Ghostty.icon requires macOS 26's AssetCatalogAgent to rasterize.
+    # Earlier macos-latest images (Sonoma/Sequoia) lack that system service and
+    # actool dies with IBPlatformToolFailureException. The bare `macos-26` label
+    # resolves to the arm64 M1 runner; use `macos-26-intel` for x86_64.
+    runs-on: macos-26
     # Only run in this fork. Stops downstream forks from accidentally trying
     # to publish releases under their own repo.
     if: github.repository == 'Explorer1092/ghostty'
@@ -97,29 +102,20 @@ jobs:
 
       - name: Build macOS app (ReleaseLocal, unsigned)
         working-directory: macos
-        # Wrap xcodebuild in `script` to give it a PTY: Xcode 26's AssetCatalogAgent
-        # (used to rasterize the .icon Icon Composer bundle) crashes intermittently
-        # in headless environments otherwise. Build arm64-only since the runner is
-        # arm64 and a universal slice doubles asset-catalog work, which compounds
-        # the same flakiness.
+        # arm64-only because the runner is arm64; producing a universal slice
+        # would need x86_64 cross-compilation and we don't ship Intel for this
+        # fork. ReleaseLocal is the project's unsigned Release variant.
         run: |
-          run_xcodebuild() {
-            script -q /dev/null xcodebuild \
-              -target Ghostty \
-              -configuration ReleaseLocal \
-              ARCHS=arm64 \
-              ONLY_ACTIVE_ARCH=YES \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGN_IDENTITY="" \
-              CODE_SIGN_STYLE=Manual \
-              DEVELOPMENT_TEAM=""
-          }
-          if ! run_xcodebuild; then
-            echo "xcodebuild failed once — retrying after a brief pause"
-            sleep 10
-            run_xcodebuild
-          fi
+          xcodebuild \
+            -target Ghostty \
+            -configuration ReleaseLocal \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM=""
 
       - name: Inject commit and build metadata into Info.plist
         env:
