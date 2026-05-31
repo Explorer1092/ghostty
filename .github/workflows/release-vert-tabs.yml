@@ -68,6 +68,9 @@ jobs:
           echo "Using SDK: $SDKROOT"
           ls -la "$SDKROOT/usr/lib/libSystem.tbd" || ls -la "$SDKROOT/usr/lib/libSystem.dylib" || true
 
+      # Cache key includes the runner image label (e.g. `macos-26`) so we
+      # don't restore Zig object files compiled against a different SDK
+      # across runner upgrades. Bump `v2` to force-miss after past misuses.
       - name: Cache Zig build outputs
         uses: actions/cache@v4
         with:
@@ -75,10 +78,10 @@ jobs:
             ${{ env.ZIG_LOCAL_CACHE_DIR }}
             ${{ env.ZIG_GLOBAL_CACHE_DIR }}
             zig-out
-          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-${{ github.sha }}
+          key: zig-v2-macos-26-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-${{ github.sha }}
           restore-keys: |
-            zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-
-            zig-${{ runner.os }}-${{ runner.arch }}-
+            zig-v2-macos-26-${{ runner.arch }}-${{ hashFiles('build.zig', 'build.zig.zon') }}-
+            zig-v2-macos-26-${{ runner.arch }}-
 
       - name: Cache Swift Package Manager (Sparkle, etc.)
         uses: actions/cache@v4
@@ -86,9 +89,9 @@ jobs:
           path: |
             ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
             ~/Library/Caches/org.swift.swiftpm
-          key: spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('macos/Ghostty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-v2-macos-26-${{ runner.arch }}-${{ hashFiles('macos/Ghostty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
-            spm-${{ runner.os }}-${{ runner.arch }}-
+            spm-v2-macos-26-${{ runner.arch }}-
 
       - name: Extract build metadata
         id: meta
