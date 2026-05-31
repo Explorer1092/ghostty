@@ -5379,11 +5379,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
-        .set_tabs_location => |loc| return try self.rt_app.performAction(
+        .set_tabs_position => |pos| return try self.rt_app.performAction(
             .{ .surface = self },
-            .set_tabs_location,
-            switch (loc) {
-                .native => .native,
+            .set_tabs_position,
+            switch (pos) {
+                .top => .top,
+                .bottom => .bottom,
                 .left => .left,
                 .right => .right,
                 .hidden => .hidden,

@@ -624,13 +624,14 @@ typedef enum {
   GHOSTTY_FULLSCREEN_MACOS_NON_NATIVE_PADDED_NOTCH,
 } ghostty_action_fullscreen_e;
 
-// apprt.action.TabsLocation
+// apprt.action.TabsPosition
 typedef enum {
-  GHOSTTY_TABS_LOCATION_NATIVE,
-  GHOSTTY_TABS_LOCATION_LEFT,
-  GHOSTTY_TABS_LOCATION_RIGHT,
-  GHOSTTY_TABS_LOCATION_HIDDEN,
-} ghostty_action_tabs_location_e;
+  GHOSTTY_TABS_POSITION_TOP,
+  GHOSTTY_TABS_POSITION_BOTTOM,
+  GHOSTTY_TABS_POSITION_LEFT,
+  GHOSTTY_TABS_POSITION_RIGHT,
+  GHOSTTY_TABS_POSITION_HIDDEN,
+} ghostty_action_tabs_position_e;
 
 // apprt.action.FloatWindow
 typedef enum {
@@ -900,7 +901,7 @@ typedef enum {
   GHOSTTY_ACTION_TOGGLE_MAXIMIZE,
   GHOSTTY_ACTION_TOGGLE_FULLSCREEN,
   GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW,
-  GHOSTTY_ACTION_SET_TABS_LOCATION,
+  GHOSTTY_ACTION_SET_TABS_POSITION,
   GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS,
   GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL,
   GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE,
@@ -962,7 +963,7 @@ typedef enum {
 typedef union {
   ghostty_action_split_direction_e new_split;
   ghostty_action_fullscreen_e toggle_fullscreen;
-  ghostty_action_tabs_location_e set_tabs_location;
+  ghostty_action_tabs_position_e set_tabs_position;
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;
   ghostty_action_goto_split_e goto_split;

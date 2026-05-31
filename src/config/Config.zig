@@ -74,10 +74,6 @@ pub const compatibility = std.StaticStringMap(
     // a hard dependency on libadwaita.
     .{ "adw-toolbar-style", cli.compatibilityRenamed(Config, "gtk-toolbar-style") },
 
-    // Ghostty 1.2 removed the `hidden` value from `gtk-tabs-location` and
-    // moved it to `window-show-tab-bar`.
-    .{ "gtk-tabs-location", compatGtkTabsLocation },
-
     // Ghostty 1.2 lets you set `cell-foreground` and `cell-background`
     // to match the cell foreground and background colors, respectively.
     // This can be used with `cursor-color` and `cursor-text` to recreate
@@ -3260,13 +3256,13 @@ keybind: Keybinds = .{},
 /// Changing this option at runtime only applies to new windows.
 @"macos-titlebar-style": MacTitlebarStyle = .transparent,
 
-/// The location of the tab bar on macOS. This controls where tabs are
-/// displayed in the window.
+/// The position of the tab bar in the window. This controls where tabs are
+/// displayed.
 ///
 /// Valid values are:
 ///
-///   * `native` - Use the native macOS tab bar (horizontal, in the titlebar
-///     area). This is the default.
+///   * `top` - Display tabs at the top of the window. This is the default.
+///   * `bottom` - Display tabs at the bottom of the window.
 ///   * `left` - Display tabs in a vertical sidebar on the left side of the
 ///     window.
 ///   * `right` - Display tabs in a vertical sidebar on the right side of the
@@ -3274,22 +3270,21 @@ keybind: Keybinds = .{},
 ///   * `hidden` - Hide the tab bar completely. Use keybinds to switch between
 ///     tabs.
 ///
-/// When using `left` or `right`, the native macOS tab bar will be hidden and
-/// replaced with a custom vertical tab sidebar.
+/// On macOS, the system tab bar is always replaced with a custom Ghostty
+/// renderer regardless of position so the visual treatment is consistent.
 ///
-/// The default value is `native`.
+/// On GTK, top/bottom use the standard `Adw.TabBar`; left/right use a custom
+/// vertical sidebar. The hidden value disables the tab bar entirely.
 ///
-/// Changing this option at runtime only applies to new windows.
-///
-/// Available since: 1.3.0
-@"macos-tabs-location": MacTabsLocation = .native,
+/// The default value is `top`.
+@"tabs-position": TabsPosition = .top,
 
 /// Whether to color-code the tabs in the vertical tab sidebar. When
 /// enabled, each tab is assigned a unique color from a palette when it
 /// is first opened and keeps that color for the duration of the session.
 /// This makes it easy to distinguish tabs at a glance.
 ///
-/// This option only has an effect when `macos-tabs-location` is set to
+/// This option only has an effect when `tabs-position` is set to
 /// `left` or `right`.
 ///
 /// The default value is `true`.
@@ -3297,7 +3292,7 @@ keybind: Keybinds = .{},
 
 /// The border color for the active tab in the vertical tab sidebar.
 ///
-/// This option only has an effect when `macos-tabs-location` is set to
+/// This option only has an effect when `tabs-position` is set to
 /// `left` or `right`.
 ///
 /// The default value is a fluorescent green.
@@ -3652,16 +3647,6 @@ else
 /// This option does nothing when `window-decoration` is none or when running
 /// under macOS.
 @"gtk-titlebar": bool = true,
-
-/// Determines the side of the screen that the GTK tab bar will stick to.
-/// Top, bottom, and hidden are supported. The default is top.
-///
-/// When `hidden` is set, a tab button displaying the number of tabs will appear
-/// in the title bar. It has the ability to open a tab overview for displaying
-/// tabs. Alternatively, you can use the `toggle_tab_overview` action in a
-/// keybind if your window doesn't have a title bar, or you can switch tabs
-/// with keybinds.
-@"gtk-tabs-location": GtkTabsLocation = .top,
 
 /// If this is `true`, the titlebar will be hidden when the window is maximized,
 /// and shown when the titlebar is unmaximized. GTK only.
@@ -4814,23 +4799,6 @@ pub fn parseManuallyHook(
 
     // If we didn't find a special case, continue parsing normally
     return true;
-}
-
-fn compatGtkTabsLocation(
-    self: *Config,
-    alloc: Allocator,
-    key: []const u8,
-    value: ?[]const u8,
-) bool {
-    _ = alloc;
-    assert(std.mem.eql(u8, key, "gtk-tabs-location"));
-
-    if (std.mem.eql(u8, value orelse "", "hidden")) {
-        self.@"window-show-tab-bar" = .never;
-        return true;
-    }
-
-    return false;
 }
 
 fn compatGtkSingleInstance(
@@ -9041,9 +9009,10 @@ pub const MacTitlebarStyle = enum {
     hidden,
 };
 
-/// See macos-tabs-location
-pub const MacTabsLocation = enum {
-    native,
+/// See tabs-position
+pub const TabsPosition = enum {
+    top,
+    bottom,
     left,
     right,
     hidden,
@@ -9102,12 +9071,6 @@ pub const GtkSingleInstance = enum {
     detect,
 
     pub const default: GtkSingleInstance = .detect;
-};
-
-/// See gtk-tabs-location
-pub const GtkTabsLocation = enum {
-    top,
-    bottom,
 };
 
 /// See gtk-toolbar-style

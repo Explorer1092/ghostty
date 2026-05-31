@@ -594,16 +594,14 @@ pub const Action = union(enum) {
     /// found by running `ghostty +version`.
     toggle_tab_overview,
 
-    /// Change the tab location of the current window at runtime.
+    /// Change the tab position of the current window at runtime.
     ///
-    /// Valid arguments: `native`, `left`, `right`, `hidden`.
+    /// Valid arguments: `top`, `bottom`, `left`, `right`, `hidden`.
     ///
     /// This applies immediately to the current window without modifying
-    /// the `macos-tabs-location` configuration. The override is not
-    /// persisted: restarting Ghostty restores the configured default.
-    ///
-    /// This is only supported on macOS. On other platforms it is a no-op.
-    set_tabs_location: TabsLocation,
+    /// the `tabs-position` configuration. The override is not persisted:
+    /// restarting Ghostty restores the configured default.
+    set_tabs_position: TabsPosition,
 
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
@@ -1051,10 +1049,11 @@ pub const Action = union(enum) {
         pub const default: SplitDirection = .auto;
     };
 
-    /// The vertical tab location for a window. Mirrors the values of
-    /// `config.MacTabsLocation`.
-    pub const TabsLocation = enum {
-        native,
+    /// The position of the tab bar in the window. Mirrors the values of
+    /// `config.TabsPosition`.
+    pub const TabsPosition = enum {
+        top,
+        bottom,
         left,
         right,
         hidden,
@@ -1439,7 +1438,7 @@ pub const Action = union(enum) {
             .goto_tab,
             .move_tab,
             .toggle_tab_overview,
-            .set_tabs_location,
+            .set_tabs_position,
             .new_split,
             .goto_split,
             .goto_window,

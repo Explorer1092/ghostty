@@ -698,9 +698,15 @@ pub const Window = extern struct {
 
         // Move the tab bar to the proper location.
         priv.toolbar.remove(priv.tab_bar.as(gtk.Widget));
-        switch (config.@"gtk-tabs-location") {
+        switch (config.@"tabs-position") {
             .top => priv.toolbar.addTopBar(priv.tab_bar.as(gtk.Widget)),
             .bottom => priv.toolbar.addBottomBar(priv.tab_bar.as(gtk.Widget)),
+            // Left/right require a vertical sidebar widget that GTK does not
+            // yet ship in this branch. Fall back to top until that lands.
+            .left, .right => priv.toolbar.addTopBar(priv.tab_bar.as(gtk.Widget)),
+            // Hidden: don't add the tab bar to the toolbar at all. The tab
+            // bar's own visibility binding will hide its row.
+            .hidden => {},
         }
 
         // Do our window-protocol specific appearance sync.
