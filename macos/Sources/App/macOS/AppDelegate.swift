@@ -967,6 +967,22 @@ class AppDelegate: NSObject,
         setSecureInput(.toggle)
     }
 
+    @IBAction func setTabsLocationNative(_ sender: Any?) {
+        TerminalController.preferredParent?.setTabsLocation(.native)
+    }
+
+    @IBAction func setTabsLocationLeft(_ sender: Any?) {
+        TerminalController.preferredParent?.setTabsLocation(.left)
+    }
+
+    @IBAction func setTabsLocationRight(_ sender: Any?) {
+        TerminalController.preferredParent?.setTabsLocation(.right)
+    }
+
+    @IBAction func setTabsLocationHidden(_ sender: Any?) {
+        TerminalController.preferredParent?.setTabsLocation(.hidden)
+    }
+
     @IBAction func toggleQuickTerminal(_ sender: Any) {
         quickController.toggle()
     }
@@ -1285,6 +1301,30 @@ extension AppDelegate: NSMenuItemValidation {
                 item.title = "Redo"
             }
             return undoManager.canRedo
+
+        case #selector(setTabsLocationNative(_:)),
+            #selector(setTabsLocationLeft(_:)),
+            #selector(setTabsLocationRight(_:)),
+            #selector(setTabsLocationHidden(_:)):
+            // Only reached if no TerminalController in the responder chain handled
+            // validation. Show the checkmark for the preferred parent's location
+            // when available; disable when no regular terminal window exists.
+            guard let parent = TerminalController.preferredParent else {
+                item.state = .off
+                return false
+            }
+            let target: Ghostty.MacOSTabsLocation
+            if item.action == #selector(setTabsLocationLeft(_:)) {
+                target = .left
+            } else if item.action == #selector(setTabsLocationRight(_:)) {
+                target = .right
+            } else if item.action == #selector(setTabsLocationHidden(_:)) {
+                target = .hidden
+            } else {
+                target = .native
+            }
+            item.state = parent.effectiveTabsLocation == target ? .on : .off
+            return true
 
         default:
             return true

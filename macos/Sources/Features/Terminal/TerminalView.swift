@@ -68,14 +68,21 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
         return URL(fileURLWithPath: surfacePwd)
     }
     
+    // The effective tab location for this window: the per-window runtime
+    // override if set, otherwise the configured default.
+    private var effectiveTabsLocation: Ghostty.MacOSTabsLocation {
+        (windowController as? TerminalController)?.effectiveTabsLocation
+            ?? ghostty.config.macosTabsLocation
+    }
+
     // Whether to show vertical tabs on the left
     private var showLeftTabs: Bool {
-        ghostty.config.macosTabsLocation == .left
+        effectiveTabsLocation == .left
     }
-    
+
     // Whether to show vertical tabs on the right
     private var showRightTabs: Bool {
-        ghostty.config.macosTabsLocation == .right
+        effectiveTabsLocation == .right
     }
 
     var body: some View {

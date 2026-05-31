@@ -383,6 +383,12 @@ extension Notification.Name {
 
     /// Focus the search field
     static let ghosttySearchFocus = Notification.Name("com.mitchellh.ghostty.searchFocus")
+
+    /// Set the per-window tab location override. The notification object is the
+    /// surface whose window should change. The userInfo contains the requested
+    /// `Ghostty.MacOSTabsLocation` under `GhosttySetTabsLocationKey`.
+    static let ghosttySetTabsLocation = Notification.Name("com.mitchellh.ghostty.setTabsLocation")
+    static let GhosttySetTabsLocationKey = ghosttySetTabsLocation.rawValue
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This
