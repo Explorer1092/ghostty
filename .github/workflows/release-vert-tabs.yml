@@ -232,7 +232,7 @@ jobs:
             ## What's in this branch
 
             - aflat's vertical tab sidebar (upstream PR [#10589](https://github.com/ghostty-org/ghostty/pull/10589))
-- Runtime control via **View → Tabs Position** (Top / Bottom / Left / Right / Hidden)
+            - Runtime control via **View → Tabs Position** (Top / Bottom / Left / Right / Hidden)
             - `set_tabs_position` keybind action (e.g. `keybind = cmd+shift+l=set_tabs_position:left`)
             - Per-window override; resets to `tabs-position` config on app restart
           files: |
