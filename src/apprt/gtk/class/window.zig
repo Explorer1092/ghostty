@@ -228,6 +228,11 @@ pub const Window = extern struct {
         /// config on a per-window basis.
         window_decoration: ?configpkg.WindowDecoration = null,
 
+        /// The tabs position override. If this is not set we use the
+        /// `tabs-position` config value. This is set at runtime by the
+        /// `set_tabs_position` binding action and is reset on app restart.
+        tabs_position: ?apprt.action.TabsPosition = null,
+
         /// Binding group for our active tab.
         tab_bindings: *gobject.BindingGroup,
 
@@ -617,6 +622,18 @@ pub const Window = extern struct {
         widget.setVisible(@intFromBool(widget.isVisible() == 0));
     }
 
+    /// Override the tabs position for this window at runtime. The override
+    /// is per-window and is reset when the app restarts; it does not modify
+    /// the user's `tabs-position` config. Re-runs `syncAppearance` so the
+    /// tab bar moves immediately.
+    pub fn setTabsPositionOverride(
+        self: *Self,
+        position: apprt.action.TabsPosition,
+    ) void {
+        self.private().tabs_position = position;
+        self.syncAppearance();
+    }
+
     /// Updates various appearance properties. This should always be safe
     /// to call multiple times. This should be called whenever a change
     /// happens that might affect how the window appears (config change,
@@ -696,9 +713,19 @@ pub const Window = extern struct {
                 config.@"window-theme" == .ghostty,
         );
 
-        // Move the tab bar to the proper location.
+        // Move the tab bar to the proper location. Per-window override (set by
+        // the `set_tabs_position` binding action) takes precedence over the
+        // `tabs-position` config value.
+        const tabs_position: apprt.action.TabsPosition = priv.tabs_position orelse
+            switch (config.@"tabs-position") {
+                .top => .top,
+                .bottom => .bottom,
+                .left => .left,
+                .right => .right,
+                .hidden => .hidden,
+            };
         priv.toolbar.remove(priv.tab_bar.as(gtk.Widget));
-        switch (config.@"tabs-position") {
+        switch (tabs_position) {
             .top => priv.toolbar.addTopBar(priv.tab_bar.as(gtk.Widget)),
             .bottom => priv.toolbar.addBottomBar(priv.tab_bar.as(gtk.Widget)),
             // Left/right require a vertical sidebar widget that GTK does not
@@ -1055,6 +1082,18 @@ pub const Window = extern struct {
     fn getTabsVisible(self: *Self) bool {
         const priv = self.private();
         const config = if (priv.config) |v| v.get() else return true;
+
+        // If the effective tabs-position is hidden, the tab bar should never
+        // be visible regardless of other settings.
+        const effective_tabs_position: apprt.action.TabsPosition =
+            priv.tabs_position orelse switch (config.@"tabs-position") {
+                .top => .top,
+                .bottom => .bottom,
+                .left => .left,
+                .right => .right,
+                .hidden => .hidden,
+            };
+        if (effective_tabs_position == .hidden) return false;
 
         switch (config.@"gtk-titlebar-style") {
             .tabs => {

@@ -143,7 +143,7 @@ class QuickTerminalController: BaseTerminalController {
             delegate: self,
             windowController: self
         )
-        
+
         // Clear out our frame at this point, the fixup from above is complete.
         if let qtWindow = window as? QuickTerminalWindow {
             qtWindow.initialFrame = nil

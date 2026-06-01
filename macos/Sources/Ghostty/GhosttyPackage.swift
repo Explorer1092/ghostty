@@ -325,7 +325,7 @@ extension Ghostty {
         case tip
         case stable
     }
-    
+
     /// Enum for the tabs-position config option.
     enum TabsPosition: String {
         case top      // Horizontal tabs at the top of the window (default)
@@ -390,6 +390,10 @@ extension Notification.Name {
     /// `Ghostty.TabsPosition` under `GhosttySetTabsPositionKey`.
     static let ghosttySetTabsPosition = Notification.Name("com.mitchellh.ghostty.setTabsPosition")
     static let GhosttySetTabsPositionKey = ghosttySetTabsPosition.rawValue
+
+    /// Goto tab. Has tab index in the userinfo.
+    static let ghosttyGotoTab = Notification.Name("com.mitchellh.ghostty.gotoTab")
+    static let GotoTabKey = ghosttyGotoTab.rawValue
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This
@@ -410,7 +414,8 @@ extension Ghostty.Notification {
     static let SplitDirectionKey = ghosttyFocusSplit.rawValue
 
     /// Goto tab. Has tab index in the userinfo.
-    static let ghosttyGotoTab = Notification.Name("com.mitchellh.ghostty.gotoTab")
+    /// Also defined on Notification.Name for direct use in [Notification.Name] arrays.
+    static let ghosttyGotoTab = Notification.Name.ghosttyGotoTab
     static let GotoTabKey = ghosttyGotoTab.rawValue
 
     /// New tab. Has base surface config requested in userinfo.

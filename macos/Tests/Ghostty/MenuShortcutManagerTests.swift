@@ -47,4 +47,19 @@ struct MenuShortcutManagerTests {
         #expect(goToLeftItem.keyEquivalent == "h")
         #expect(goToLeftItem.keyEquivalentModifierMask == .command)
     }
+
+    @Test(.bug("https://github.com/ghostty-org/ghostty/issues/10749", id: 10749))
+    func performableBindingsShouldAppearInMenus() async throws {
+        let config = try TemporaryConfig("")
+
+        let pasteItem = NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "")
+
+        let manager = await Ghostty.MenuShortcutManager()
+        await manager.reset()
+        await manager.syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: pasteItem)
+
+        #expect(config.keyboardShortcut(for: "paste_from_clipboard") == nil)
+        #expect(pasteItem.keyEquivalent == "v")
+        #expect(pasteItem.keyEquivalentModifierMask == .command)
+    }
 }

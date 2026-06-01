@@ -16,6 +16,18 @@ class HiddenTitlebarTerminalWindow: TerminalWindow {
             selector: #selector(fullscreenDidExit(_:)),
             name: .fullscreenDidExit,
             object: nil)
+
+        // When a window joins a tab group or a tab is selected within one,
+        // AppKit may un-hide NSTitlebarContainerView. Re-apply our hidden
+        // style so the empty titlebar strip never appears. We use
+        // didBecomeKey because AppKit doesn't have a dedicated "joined
+        // tab group" notification, and this fires both on initial merge
+        // and on tab selection within a group.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reapplyHiddenStyle),
+            name: NSWindow.didBecomeKeyNotification,
+            object: self)
     }
 
     deinit {
@@ -36,7 +48,7 @@ class HiddenTitlebarTerminalWindow: TerminalWindow {
     ]
 
     /// Apply the hidden titlebar style.
-    private func reapplyHiddenStyle() {
+    @objc private func reapplyHiddenStyle() {
         // If our window is fullscreen then we don't reapply the hidden style because
         // it can result in messing up non-native fullscreen. See:
         // https://github.com/ghostty-org/ghostty/issues/8415
@@ -59,9 +71,6 @@ class HiddenTitlebarTerminalWindow: TerminalWindow {
         standardWindowButton(.closeButton)?.isHidden = true
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
-
-        // Disallow tabbing if the titlebar is hidden, since that will (should) also hide the tab bar.
-        tabbingMode = .disallowed
 
         // Nuke it from orbit -- hide the titlebar container entirely, just in case. There are
         // some operations that appear to bring back the titlebar visibility so this ensures

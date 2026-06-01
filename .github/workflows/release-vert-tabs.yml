@@ -145,6 +145,11 @@ jobs:
           APP="macos/build/Release/Ghostty.app"
           test -d "$APP" || { echo "Ghostty.app not found"; exit 1; }
           test -x "$APP/Contents/MacOS/ghostty" || { echo "ghostty binary not found"; exit 1; }
+          # Verify our new menu wired into MainMenu.nib
+          if ! strings "$APP/Contents/Resources/MainMenu.nib" | grep -q "Tabs Position"; then
+            echo "Menu wiring missing from MainMenu.nib"
+            exit 1
+          fi
           ls -la "$APP/Contents/MacOS/"
 
       # Zip up the app and symbols. (Upstream uses fixed names like
@@ -227,9 +232,9 @@ jobs:
             ## What's in this branch
 
             - aflat's vertical tab sidebar (upstream PR [#10589](https://github.com/ghostty-org/ghostty/pull/10589))
-            - Runtime control via **View → Tabs Position** menu
-            - `set_tabs_position` keybind action
-            - Per-window override; resets to the config default on app restart
+- Runtime control via **View → Tabs Position** (Top / Bottom / Left / Right / Hidden)
+            - `set_tabs_position` keybind action (e.g. `keybind = cmd+shift+l=set_tabs_position:left`)
+            - Per-window override; resets to `tabs-position` config on app restart
           files: |
             ${{ steps.meta.outputs.bundle_base }}.zip
             ${{ steps.meta.outputs.bundle_base }}.zip.sha256

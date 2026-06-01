@@ -210,14 +210,6 @@ class TerminalWindow: NSWindow {
 
     override func becomeMain() {
         super.becomeMain()
-
-        // Its possible we miss the accessory titlebar call so we check again
-        // whenever the window becomes main. Both of these are idempotent.
-        if tabBarView != nil {
-            tabBarDidAppear()
-        } else {
-            tabBarDidDisappear()
-        }
         viewModel.isMainWindow = true
     }
 
@@ -261,14 +253,6 @@ class TerminalWindow: NSWindow {
         super.addTitlebarAccessoryViewController(childViewController)
     }
 
-    override func removeTitlebarAccessoryViewController(at index: Int) {
-        if let childViewController = titlebarAccessoryViewControllers[safe: index], isTabBar(childViewController) {
-            tabBarDidDisappear()
-        }
-
-        super.removeTitlebarAccessoryViewController(at: index)
-    }
-
     // MARK: Tab Bar
 
     /// This identifier is attached to the tab bar view controller when we detect it being
@@ -303,26 +287,6 @@ class TerminalWindow: NSWindow {
         // View controllers should be tagged with this as soon as possible to
         // increase our accuracy. We do this manually.
         return childViewController.identifier == Self.tabBarIdentifier
-    }
-
-    private func tabBarDidAppear() {
-        // Remove our reset zoom accessory. For some reason having a SwiftUI
-        // titlebar accessory causes our content view scaling to be wrong.
-        // Removing it fixes it, we just need to remember to add it again later.
-        if let idx = titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) {
-            removeTitlebarAccessoryViewController(at: idx)
-        }
-
-        // We don't need to do this with the update accessory. I don't know why but
-        // everything works fine.
-    }
-
-    private func tabBarDidDisappear() {
-        if styleMask.contains(.titled) {
-            if titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) == nil {
-                addTitlebarAccessoryViewController(resetZoomAccessory)
-            }
-        }
     }
 
     // MARK: Tab Key Equivalents

@@ -18,6 +18,12 @@ class MockTerminalViewContainer: TerminalViewContainer {
     override var windowCornerRadius: CGFloat? {
         _windowCornerRadius
     }
+
+    #if DEBUG
+    override init(testPlaceholderContent: NSView = NSView()) {
+        super.init(testPlaceholderContent: testPlaceholderContent)
+    }
+    #endif
 }
 
 class MockConfig: Ghostty.Config {
@@ -47,9 +53,7 @@ class MockConfig: Ghostty.Config {
 
 struct TerminalViewContainerTests {
     @Test func glassAvailability() async throws {
-        let view = await MockTerminalViewContainer {
-            EmptyView()
-        }
+        let view = await MockTerminalViewContainer()
 
         let config = MockConfig(backgroundBlur: .macosGlassRegular, backgroundColor: .clear, backgroundOpacity: 1)
         await view.ghosttyConfigDidChange(config, preferredBackgroundColor: nil)
@@ -64,9 +68,7 @@ struct TerminalViewContainerTests {
 #if compiler(>=6.2)
     @Test func configChangeUpdatesGlass() async throws {
         guard #available(macOS 26.0, *) else { return }
-        let view = await MockTerminalViewContainer {
-            EmptyView()
-        }
+        let view = await MockTerminalViewContainer()
         let config1 = MockConfig(backgroundBlur: .macosGlassRegular, backgroundColor: .clear, backgroundOpacity: 1)
         await view.ghosttyConfigDidChange(config1, preferredBackgroundColor: nil)
         let glassEffectView = await view.descendants(withClassName: "NSGlassEffectView").first as? NSGlassEffectView
@@ -75,7 +77,7 @@ struct TerminalViewContainerTests {
         #expect(effectView.tintColor?.hexString == NSColor.clear.hexString)
 
         // Test with same config but with different preferredBackgroundColor
-        await view.ghosttyConfigDidChange(config1, preferredBackgroundColor: .red)
+        await view.ghosttyConfigDidChange(config1, preferredBackgroundColor: NSColor.red)
         #expect(effectView.tintColor?.hexString == NSColor.red.hexString)
 
         // MARK: - Corner Radius
@@ -86,7 +88,7 @@ struct TerminalViewContainerTests {
         // This won't change, unless ghosttyConfigDidChange is called
         #expect(effectView.cornerRadius == 0)
 
-        await view.ghosttyConfigDidChange(config1, preferredBackgroundColor: .red)
+        await view.ghosttyConfigDidChange(config1, preferredBackgroundColor: NSColor.red)
         #expect(effectView.cornerRadius == 10)
 
         // MARK: - Glass Style
@@ -94,7 +96,7 @@ struct TerminalViewContainerTests {
         #expect(effectView.style == .regular)
 
         let config2 = MockConfig(backgroundBlur: .macosGlassClear, backgroundColor: .clear, backgroundOpacity: 1)
-        await view.ghosttyConfigDidChange(config2, preferredBackgroundColor: .red)
+        await view.ghosttyConfigDidChange(config2, preferredBackgroundColor: NSColor.red)
 
         #expect(effectView.style == .clear)
 

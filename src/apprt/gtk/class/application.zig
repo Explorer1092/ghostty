@@ -747,6 +747,7 @@ pub const Application = extern struct {
 
             .set_title => Action.setTitle(target, value),
             .set_tab_title => return Action.setTabTitle(target, value),
+            .set_tabs_position => return Action.setTabsPosition(target, value),
 
             .show_child_exited => return Action.showChildExited(target, value),
 
@@ -784,7 +785,6 @@ pub const Application = extern struct {
             .check_for_updates,
             .undo,
             .redo,
-            .set_tabs_position,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;
@@ -2598,6 +2598,30 @@ const Action = struct {
                     return false;
                 };
                 tab.setTitleOverride(if (value.title.len == 0) null else value.title);
+                return true;
+            },
+        }
+    }
+
+    pub fn setTabsPosition(
+        target: apprt.Target,
+        value: apprt.action.TabsPosition,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("set_tabs_position to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring set_tabs_position", .{});
+                    return false;
+                };
+                window.setTabsPositionOverride(value);
                 return true;
             },
         }

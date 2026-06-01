@@ -10,11 +10,9 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
 
     /// KVO observation for tab group window changes.
     private var tabGroupWindowsObservation: NSKeyValueObservation?
-    private var tabBarVisibleObservation: NSKeyValueObservation?
 
     deinit {
         tabGroupWindowsObservation?.invalidate()
-        tabBarVisibleObservation?.invalidate()
     }
 
     // MARK: NSWindow
@@ -131,7 +129,6 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
     private func setupKVO() {
         // See the docs for the respective setup functions for why.
         setupTabGroupObservation()
-        setupTabBarVisibleObservation()
     }
 
     /// Monitors the tabGroup windows value for any changes and resyncs the appearance on change.
@@ -158,24 +155,6 @@ class TransparentTitlebarTerminalWindow: TerminalWindow {
             // It's cheap enough to always redraw this so we should just do it
             // unconditionally.
 
-            guard let self else { return }
-            guard let lastSurfaceConfig else { return }
-            self.syncAppearance(lastSurfaceConfig)
-        }
-    }
-
-    /// Monitors the tab bar for visibility. This lets the "Show/Hide Tab Bar" manual menu item
-    /// to not break our appearance.
-    private func setupTabBarVisibleObservation() {
-        // Remove existing observation if any
-        tabBarVisibleObservation?.invalidate()
-        tabBarVisibleObservation = nil
-
-        // Set up KVO observation for isTabBarVisible
-        tabBarVisibleObservation = tabGroup?.observe(
-            \.isTabBarVisible,
-             options: [.new]
-        ) { [weak self] _, _ in
             guard let self else { return }
             guard let lastSurfaceConfig else { return }
             self.syncAppearance(lastSurfaceConfig)

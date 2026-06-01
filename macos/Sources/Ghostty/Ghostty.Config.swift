@@ -122,6 +122,19 @@ extension Ghostty {
             let trigger = ghostty_config_trigger(cfg, action, UInt(action.lengthOfBytes(using: .utf8)))
             return Ghostty.keyboardShortcut(for: trigger)
         }
+
+        /// Return the key equivalent for menus. This includes performable bindings
+        /// that are intentionally excluded from the terminal-focused shortcut lookup.
+        func keyboardShortcutForMenu(for action: String) -> KeyboardShortcut? {
+            guard let cfg = self.config else { return nil }
+
+            let trigger = ghostty_config_trigger_for_menu(
+                cfg,
+                action,
+                UInt(action.lengthOfBytes(using: .utf8))
+            )
+            return Ghostty.keyboardShortcut(for: trigger)
+        }
 #endif
 
         // MARK: - Configuration Values
@@ -371,7 +384,7 @@ extension Ghostty {
         var tabsPosition: Ghostty.TabsPosition {
             let defaultValue = Ghostty.TabsPosition.top
             guard let config = self.config else { return defaultValue }
-            var v: UnsafePointer<Int8>? = nil
+            var v: UnsafePointer<Int8>?
             let key = "tabs-position"
             guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return defaultValue }
             guard let ptr = v else { return defaultValue }

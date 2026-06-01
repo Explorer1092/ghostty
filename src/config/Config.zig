@@ -92,6 +92,11 @@ pub const compatibility = std.StaticStringMap(
     // Ghostty 1.3 rename the "window" option to "new-window".
     // See: https://github.com/ghostty-org/ghostty/pull/9764
     .{ "macos-dock-drop-behavior", compatMacOSDockDropBehavior },
+
+    // Ghostty 1.3 unified macos-tabs-location and gtk-tabs-location
+    // into the new tabs-position config.
+    .{ "macos-tabs-location", compatMacTabsLocation },
+    .{ "gtk-tabs-location", compatGtkTabsLocation },
 });
 
 /// Set Ghostty's graphical user interface language to a language other than the
@@ -3273,27 +3278,28 @@ keybind: Keybinds = .{},
 /// On macOS, the system tab bar is always replaced with a custom Ghostty
 /// renderer regardless of position so the visual treatment is consistent.
 ///
-/// On GTK, top/bottom use the standard `Adw.TabBar`; left/right use a custom
-/// vertical sidebar. The hidden value disables the tab bar entirely.
+/// On macOS, all five positions are supported. On GTK, `top` and `bottom`
+/// use the standard `Adw.TabBar`. `left` and `right` currently fall back to
+/// `top` (vertical sidebar is not yet wired). `hidden` suppresses the tab
+/// bar entirely.
 ///
 /// The default value is `top`.
 @"tabs-position": TabsPosition = .top,
 
-/// Whether to color-code the tabs in the vertical tab sidebar. When
+/// Whether to color-code the tabs. When
 /// enabled, each tab is assigned a unique color from a palette when it
 /// is first opened and keeps that color for the duration of the session.
 /// This makes it easy to distinguish tabs at a glance.
 ///
-/// This option only has an effect when `tabs-position` is set to
-/// `left` or `right`.
+/// When enabled, each tab is assigned a unique color in both horizontal
+/// and vertical layouts.
 ///
 /// The default value is `true`.
 @"macos-tab-color": bool = true,
 
-/// The border color for the active tab in the vertical tab sidebar.
+/// The border color for the active tab.
 ///
-/// This option only has an effect when `tabs-position` is set to
-/// `left` or `right`.
+/// This option applies in both horizontal and vertical tab layouts.
 ///
 /// The default value is a fluorescent green.
 @"macos-tab-border-color": Color = .{ .r = 0x39, .g = 0xFF, .b = 0x14 },
@@ -4891,6 +4897,62 @@ fn compatMacOSDockDropBehavior(
 
     if (std.mem.eql(u8, value orelse "", "window")) {
         self.@"macos-dock-drop-behavior" = .@"new-window";
+        return true;
+    }
+
+    return false;
+}
+
+fn compatMacTabsLocation(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "macos-tabs-location"));
+
+    const v = value orelse "";
+    if (std.mem.eql(u8, v, "native")) {
+        self.@"tabs-position" = .top;
+        return true;
+    }
+    if (std.mem.eql(u8, v, "left")) {
+        self.@"tabs-position" = .left;
+        return true;
+    }
+    if (std.mem.eql(u8, v, "right")) {
+        self.@"tabs-position" = .right;
+        return true;
+    }
+    if (std.mem.eql(u8, v, "hidden")) {
+        self.@"tabs-position" = .hidden;
+        return true;
+    }
+
+    return false;
+}
+
+fn compatGtkTabsLocation(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "gtk-tabs-location"));
+
+    const v = value orelse "";
+    if (std.mem.eql(u8, v, "top")) {
+        self.@"tabs-position" = .top;
+        return true;
+    }
+    if (std.mem.eql(u8, v, "bottom")) {
+        self.@"tabs-position" = .bottom;
+        return true;
+    }
+    if (std.mem.eql(u8, v, "hidden")) {
+        self.@"tabs-position" = .hidden;
         return true;
     }
 

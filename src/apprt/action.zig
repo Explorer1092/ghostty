@@ -108,11 +108,6 @@ pub const Action = union(Key) {
     /// Toggle tab overview.
     toggle_tab_overview,
 
-    /// Override the tab position for the targeted window at runtime.
-    /// The override is per-window state and does not modify the
-    /// `tabs-position` config; it is reset when the app restarts.
-    set_tabs_position: TabsPosition,
-
     /// Toggle whether window directions are shown.
     toggle_window_decorations,
 
@@ -348,6 +343,11 @@ pub const Action = union(Key) {
     /// otherwise the terminal-set title.
     copy_title_to_clipboard,
 
+    /// Override the tab position for the targeted window at runtime.
+    /// The override is per-window state and does not modify the
+    /// `tabs-position` config; it is reset when the app restarts.
+    set_tabs_position: TabsPosition,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -359,7 +359,6 @@ pub const Action = union(Key) {
         toggle_maximize,
         toggle_fullscreen,
         toggle_tab_overview,
-        set_tabs_position,
         toggle_window_decorations,
         toggle_quick_terminal,
         toggle_command_palette,
@@ -416,6 +415,7 @@ pub const Action = union(Key) {
         search_selected,
         readonly,
         copy_title_to_clipboard,
+        set_tabs_position,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");

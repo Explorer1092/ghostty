@@ -45,11 +45,11 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
     @ObservedObject var viewModel: ViewModel
 
     // An optional delegate to receive information about terminal changes.
-    weak var delegate: (any TerminalViewDelegate)? = nil
-    
+    weak var delegate: (any TerminalViewDelegate)?
+
     // The window controller for vertical tabs
-    weak var windowController: BaseTerminalController? = nil
-    
+    weak var windowController: BaseTerminalController?
+
     // The most recently focused surface, equal to focusedSurface when
     // it is non-nil.
     @State private var lastFocusedSurface: Weak<Ghostty.SurfaceView> = .init()
@@ -67,23 +67,95 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
         guard let surfacePwd, surfacePwd != "" else { return nil }
         return URL(fileURLWithPath: surfacePwd)
     }
-    
+
     // The current tab position for this window. Read from the controller
     // (the runtime source of truth); falls back to the config default
-    // when no controller is attached.
+    // when no controller is attached. QuickTerminalController and other
+    // non-TerminalController windows don't support tab grouping, so force
+    // hidden to avoid rendering a useless tab bar.
     private var tabsPosition: Ghostty.TabsPosition {
-        (windowController as? TerminalController)?.tabsPosition
+        guard windowController is TerminalController else { return .hidden }
+        return (windowController as? TerminalController)?.tabsPosition
             ?? ghostty.config.tabsPosition
     }
 
-    // Whether to show vertical tabs on the left
-    private var showLeftTabs: Bool {
-        tabsPosition == .left
+    // Build a tab bar configured for this view's window controller.
+    @ViewBuilder
+    private func tabBar(orientation: TerminalTabBar.Orientation, side: TerminalTabBar.Side) -> some View {
+        TerminalTabBar(
+            tabColorEnabled: ghostty.config.macosTabColor,
+            selectedBorderColor: ghostty.config.macosTabBorderColor,
+            windowController: windowController,
+            orientation: orientation,
+            side: side
+        )
     }
 
-    // Whether to show vertical tabs on the right
-    private var showRightTabs: Bool {
-        tabsPosition == .right
+    // The terminal split tree, wired up with all the change observers and
+    // sized using the most-recently-focused surface's preferred dimensions.
+    private var surfaceTreeContent: some View {
+        VStack(spacing: 0) {
+            // If we're running in debug mode we show a warning so that users
+            // know that performance will be degraded.
+            if Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE {
+                DebugBuildWarningView()
+            }
+
+            TerminalSplitTreeView(
+                tree: viewModel.surfaceTree,
+                action: { delegate?.performSplitAction($0) })
+                .environmentObject(ghostty)
+                .focused($focused)
+                .onAppear { self.focused = true }
+                .onChange(of: focusedSurface) { newValue in
+                    // We want to keep track of our last focused surface so even if
+                    // we lose focus we keep this set to the last non-nil value.
+                    if newValue != nil {
+                        lastFocusedSurface = .init(newValue)
+                        self.delegate?.focusedSurfaceDidChange(to: newValue)
+                    }
+                }
+                .onChange(of: pwdURL) { newValue in
+                    self.delegate?.pwdDidChange(to: newValue)
+                }
+                .onChange(of: cellSize) { newValue in
+                    guard let size = newValue else { return }
+                    self.delegate?.cellSizeDidChange(to: size)
+                }
+                .frame(idealWidth: lastFocusedSurface.value?.initialSize?.width,
+                       idealHeight: lastFocusedSurface.value?.initialSize?.height)
+        }
+    }
+
+    // The full layout for one of the five `tabs-position` values. Each branch
+    // arranges the tab bar relative to the surface tree (or omits it for
+    // `.hidden`).
+    @ViewBuilder
+    private var layoutBody: some View {
+        switch tabsPosition {
+        case .top:
+            VStack(spacing: 0) {
+                tabBar(orientation: .horizontal, side: .top)
+                surfaceTreeContent
+            }
+        case .bottom:
+            VStack(spacing: 0) {
+                surfaceTreeContent
+                tabBar(orientation: .horizontal, side: .bottom)
+            }
+        case .left:
+            HStack(spacing: 0) {
+                tabBar(orientation: .vertical, side: .leading)
+                surfaceTreeContent
+            }
+        case .right:
+            HStack(spacing: 0) {
+                surfaceTreeContent
+                tabBar(orientation: .vertical, side: .trailing)
+            }
+        case .hidden:
+            surfaceTreeContent
+        }
     }
 
     var body: some View {
@@ -94,61 +166,9 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
             ErrorView()
         case .ready:
             ZStack {
-                HStack(spacing: 0) {
-                    // Left vertical tab sidebar
-                    if showLeftTabs {
-                        VerticalTabSidebar(
-                            tabColorEnabled: ghostty.config.macosTabColor,
-                            selectedBorderColor: ghostty.config.macosTabBorderColor,
-                            windowController: windowController,
-                            isRightSide: false
-                        )
-                    }
-                    
-                    VStack(spacing: 0) {
-                        // If we're running in debug mode we show a warning so that users
-                        // know that performance will be degraded.
-                        if (Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE) {
-                            DebugBuildWarningView()
-                        }
-
-                        TerminalSplitTreeView(
-                            tree: viewModel.surfaceTree,
-                            action: { delegate?.performSplitAction($0) })
-                            .environmentObject(ghostty)
-                            .focused($focused)
-                            .onAppear { self.focused = true }
-                            .onChange(of: focusedSurface) { newValue in
-                                // We want to keep track of our last focused surface so even if
-                                // we lose focus we keep this set to the last non-nil value.
-                                if newValue != nil {
-                                    lastFocusedSurface = .init(newValue)
-                                    self.delegate?.focusedSurfaceDidChange(to: newValue)
-                                }
-                            }
-                            .onChange(of: pwdURL) { newValue in
-                                self.delegate?.pwdDidChange(to: newValue)
-                            }
-                            .onChange(of: cellSize) { newValue in
-                                guard let size = newValue else { return }
-                                self.delegate?.cellSizeDidChange(to: size)
-                            }
-                            .frame(idealWidth: lastFocusedSurface.value?.initialSize?.width,
-                                   idealHeight: lastFocusedSurface.value?.initialSize?.height)
-                    }
-                    
-                    // Right vertical tab sidebar
-                    if showRightTabs {
-                        VerticalTabSidebar(
-                            tabColorEnabled: ghostty.config.macosTabColor,
-                            selectedBorderColor: ghostty.config.macosTabBorderColor,
-                            windowController: windowController,
-                            isRightSide: true
-                        )
-                    }
-                }
-                // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
-                .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
+                layoutBody
+                    // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
+                    .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
 
                 if let surfaceView = lastFocusedSurface.value {
                     TerminalCommandPaletteView(

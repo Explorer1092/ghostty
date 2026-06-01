@@ -81,7 +81,7 @@ private extension Ghostty.MenuShortcutManager {
     func updateMenuShortcut(_ config: Ghostty.Config, action: String?, menuItem menu: NSMenuItem) -> Bool {
         guard
             let action,
-            let shortcut = config.keyboardShortcut(for: action),
+            let shortcut = config.keyboardShortcutForMenu(for: action),
             // Build a direct lookup for key-equivalent dispatch so we don't need to
             // linearly walk the full menu hierarchy at event time.
             let key = MenuShortcutKey(shortcut)

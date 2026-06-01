@@ -35,19 +35,32 @@ struct TerminalTabBar: View {
     weak var windowController: BaseTerminalController?
 
     /// Layout configuration.
+    ///
+    /// `orientation` and `side` are always derived from the same `TabsPosition`
+    /// value (e.g. `.left` → `vertical` + `leading`) and can never disagree.
+    /// They are kept as separate parameters rather than a single `TabsPosition`
+    /// because TerminalTabBar is a SwiftUI view struct — a single enum parameter
+    /// would require a `switch` in every layout branch anyway, and the two-field
+    /// decomposition lets each branch read its relevant axis directly without
+    /// re-deriving it from TabsPosition each time.
     var orientation: Orientation
     var side: Side
 
     /// The tab data model that tracks all tabs
     @ObservedObject private var tabModel: TabModel
 
-    /// Timer for refreshing the tab list
+    /// Safety-net timer for refreshing the tab list (5s, only catches stale
+    /// state that notifications missed).
     @State private var refreshTimer: Timer?
+
+    /// NotificationCenter observers for event-driven tab refresh. Stored so
+    /// we can remove them in onDisappear.
+    @State private var notificationObservers: [NSObjectProtocol] = []
 
     /// For the rename dialog
     @State private var isShowingRenameDialog: Bool = false
     @State private var renameText: String = ""
-    @State private var windowToRename: NSWindow? = nil
+    @State private var windowToRename: NSWindow?
 
     /// Sidebar width - persisted in UserDefaults (vertical only)
     @AppStorage("verticalTabSidebarWidth") private var sidebarWidth: Double = 200
@@ -72,7 +85,7 @@ struct TerminalTabBar: View {
         self.orientation = orientation
         self.side = side
         self._tabModel = ObservedObject(
-            wrappedValue: (windowController as? TerminalController)?.verticalTabModel ?? TabModel()
+            wrappedValue: (windowController as? TerminalController)?.tabBarModel ?? TabModel()
         )
     }
 
@@ -87,9 +100,11 @@ struct TerminalTabBar: View {
         }
         .onAppear {
             refreshTabs()
+            registerNotificationObservers()
             startRefreshTimer()
         }
         .onDisappear {
+            removeNotificationObservers()
             stopRefreshTimer()
         }
         .sheet(isPresented: $isShowingRenameDialog) {
@@ -217,7 +232,11 @@ struct TerminalTabBar: View {
                 (tab.window.windowController as? BaseTerminalController)?
                     .titleOverride = nil
                 refreshTabs()
-            }
+            },
+            onDragEnded: { screenPoint in
+                handleTabDragEnded(window: tab.window, endedAt: screenPoint)
+            },
+            isVerticalLayout: orientation == .vertical
         )
     }
 
@@ -388,8 +407,29 @@ struct TerminalTabBar: View {
         let onClose: () -> Void
         let onRename: () -> Void
         let onClearCustomTitle: () -> Void
+        /// Called when a drag of this tab finishes. The point is in screen
+        /// coordinates (bottom-left origin), suitable for direct comparison
+        /// against `NSWindow.frame`. Layer 8 uses this to drive
+        /// drag-to-detach / drag-to-merge behaviors.
+        let onDragEnded: (CGPoint) -> Void
+        /// Whether the tab bar is vertically oriented. Used to filter
+        /// drag direction so that scroll-axis drags (horizontal in a
+        /// horizontal bar, vertical in a vertical bar) go to ScrollView
+        /// instead of triggering tab detach.
+        let isVerticalLayout: Bool
 
         @State private var isHovering: Bool = false
+        /// Visual offset applied while the user is dragging this tab. We use
+        /// `.offset` so the tab visually follows the cursor without disturbing
+        /// the layout of sibling tabs.
+        @State private var dragOffset: CGSize = .zero
+        /// Whether this tab is currently being dragged. We dim the tab so
+        /// the user gets a visual signal that drag has been recognized.
+        @State private var isDragging: Bool = false
+
+        /// Minimum movement before we treat input as a drag, not a click.
+        /// Tuned so a sloppy click doesn't accidentally start a tab tear-off.
+        private static let dragThreshold: CGFloat = 12
 
         private var backgroundFill: Color {
             if let c = color {
@@ -453,6 +493,10 @@ struct TerminalTabBar: View {
                     .strokeBorder(borderColor, lineWidth: isSelected ? 2.5 : 0)
             )
             .contentShape(Rectangle())
+            // Visual feedback while dragging: offset follows the cursor and
+            // the tab is dimmed so the user knows the drag was recognized.
+            .offset(dragOffset)
+            .opacity(isDragging ? 0.55 : 1.0)
             .onTapGesture {
                 onSelect()
             }
@@ -460,6 +504,57 @@ struct TerminalTabBar: View {
                 TapGesture(count: 2)
                     .onEnded {
                         onRename()
+                    }
+            )
+            // Layer 8: tab tear-off / merge drag.
+            //
+            // - `minimumDistance: dragThreshold` ensures sloppy clicks do not
+            //   trigger drag (the .onTapGesture above still fires).
+            // - `simultaneousGesture` avoids cancelling the tap gesture chain.
+            // - On end, we read `NSEvent.mouseLocation` (screen coordinates,
+            //   bottom-left origin) and forward to the parent. The parent
+            //   decides whether to no-op, merge into another window's tab
+            //   group, or detach into a standalone window.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: TabRow.dragThreshold)
+                    .onChanged { value in
+                        // Filter out drags that are primarily in the
+                        // scroll-axis direction. In a horizontal bar the
+                        // scroll axis is horizontal (X), so we only
+                        // activate on vertical drags. In a vertical bar
+                        // the scroll axis is vertical (Y), so we only
+                        // activate on horizontal drags. This prevents
+                        // ScrollView scrolling from accidentally triggering
+                        // tab detach.
+                        let tx = abs(value.translation.width)
+                        let ty = abs(value.translation.height)
+                        let isScrollAxisDrag: Bool
+                        if isVerticalLayout {
+                            // Vertical bar: scroll axis is Y; ignore
+                            // primarily-vertical drags
+                            isScrollAxisDrag = ty > tx * 1.5
+                        } else {
+                            // Horizontal bar: scroll axis is X; ignore
+                            // primarily-horizontal drags
+                            isScrollAxisDrag = tx > ty * 1.5
+                        }
+                        if isScrollAxisDrag {
+                            // Reset drag state so ScrollView handles this
+                            isDragging = false
+                            dragOffset = .zero
+                            return
+                        }
+                        if !isDragging { isDragging = true }
+                        dragOffset = value.translation
+                    }
+                    .onEnded { _ in
+                        // Capture screen point BEFORE we reset state; the
+                        // gesture system fires this on the same run loop tick
+                        // as the mouseUp so NSEvent.mouseLocation is accurate.
+                        let screenPoint = NSEvent.mouseLocation
+                        isDragging = false
+                        dragOffset = .zero
+                        onDragEnded(screenPoint)
                     }
             )
             .onHover { hovering in
@@ -503,12 +598,18 @@ struct TerminalTabBar: View {
             selectedWindow = window
         }
 
-        // If the window list shrank but the "missing" windows are still alive, we're
-        // in a transitional state. Skip this tick; the next refresh will have the full list.
+        // If the window list shrank but the "missing" windows are still in our
+        // tabGroup, we're in a transitional state (AppKit mid-merge). Skip this
+        // tick; the next refresh will have the full list. If the missing windows
+        // have left our tabGroup (detach/merge to another window), they are
+        // genuinely gone and should be removed from our tab list.
         if !tabModel.tabs.isEmpty && windows.count < tabModel.tabs.count {
-            let current = Set(windows)
+            let currentTabGroup = window.tabGroup
             let hasLivingMissingWindow = tabModel.tabs.contains { tab in
-                !current.contains(tab.window) && tab.window.isVisible
+                let tabWindow = tab.window
+                // Only treat as transitional if the window is still in our
+                // tabGroup. If it left (detach/merge), it should be removed.
+                return tabWindow.tabGroup == currentTabGroup
             }
             if hasLivingMissingWindow { return }
         }
@@ -549,14 +650,15 @@ struct TerminalTabBar: View {
     }
 
     private func closeTab(_ window: NSWindow) {
-        // If this is the only tab, close the window
-        if tabModel.tabs.count <= 1 {
+        // Route through TerminalController.closeTab so that confirmation
+        // prompts (needsConfirmQuit) and undo registration are respected,
+        // rather than calling NSWindow.close() directly.
+        guard let controller = window.windowController as? TerminalController else {
             window.close()
             return
         }
 
-        // Otherwise just close this tab
-        window.close()
+        controller.closeTab(nil)
 
         // Refresh after a short delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -574,11 +676,177 @@ struct TerminalTabBar: View {
         }
     }
 
-    // MARK: - Timer
+    // MARK: - Layer 8: Drag-to-Detach / Drag-to-Merge
 
+    /// Handle the end of a tab drag.
+    ///
+    /// Decision tree (in order):
+    ///   1. If the source window is full-screen → no-op. Detach during full-
+    ///      screen produces weird AppKit behavior; we just refuse cleanly.
+    ///   2. If the source window has a single tab (no tab group, or
+    ///      `tabGroup.windows.count == 1`) → no-op. Detach would just be the
+    ///      window dragging itself, which the user can already do via the
+    ///      titlebar.
+    ///   3. If the drop point is inside the source window's frame → no-op.
+    ///      The user dragged but never left the original window.
+    ///   4. If the drop point is inside another visible Ghostty window
+    ///      (`BaseTerminalController` controller, not full-screen) → merge:
+    ///      add the source window to the target's tab group.
+    ///   5. Otherwise → detach: remove the source window from its tab group,
+    ///      reposition it so the cursor sits roughly at its center, and bring
+    ///      it forward as a standalone window.
+    ///
+    /// The drop point is in screen coordinates (bottom-left origin), as
+    /// returned by `NSEvent.mouseLocation`. This matches `NSWindow.frame`'s
+    /// coordinate space so we can compare directly with `frame.contains(_:)`.
+    private func handleTabDragEnded(window: NSWindow, endedAt: CGPoint) {
+        // (1) Refuse detach for full-screen source windows.
+        if window.styleMask.contains(.fullScreen) { return }
+
+        // (2) Single-tab windows have nothing to detach.
+        guard let tabGroup = window.tabGroup, tabGroup.windows.count > 1 else {
+            return
+        }
+
+        // (3) Drag ended inside the source window → no-op.
+        // (Note: this also catches the common "drag back into original tab
+        // bar" case — which we want to treat as a cancelled drag.)
+        if window.frame.contains(endedAt) {
+            return
+        }
+
+        // (4) Try to merge into another Ghostty window whose frame contains
+        // the drop point. We use z-order (front-to-back stacking) rather than
+        // NSApp.windows creation order so that if two Ghostty windows overlap,
+        // the merge target is the one the user actually sees on top — not a
+        // hidden window buried underneath.
+        //
+        // Strategy: ask AppKit for the topmost window number at the drop point,
+        // then check whether that window belongs to Ghostty (has a
+        // BaseTerminalController). If it does, use it. If it's a non-Ghostty
+        // window (e.g. Finder), walk downward by window number until we find a
+        // qualifying Ghostty window, or give up.
+        var mergeTarget: NSWindow?
+        var candidateNumber = NSWindow.windowNumber(
+            at: endedAt,
+            belowWindowWithWindowNumber: 0
+        )
+        // Walk the z-order stack from front to back at the drop point.
+        // Each call returns the next window below `candidateNumber`; 0 means
+        // no more windows.
+        while candidateNumber != 0 {
+            if let candidate = NSApp.windows.first(where: {
+                $0.windowNumber == candidateNumber
+            }) {
+                if candidate != window
+                    && candidate.windowController is BaseTerminalController
+                    && !candidate.styleMask.contains(.fullScreen)
+                    && candidate.isVisible
+                    && candidate.frame.contains(endedAt) {
+                    mergeTarget = candidate
+                    break
+                }
+            }
+            candidateNumber = NSWindow.windowNumber(
+                at: endedAt,
+                belowWindowWithWindowNumber: candidateNumber
+            )
+        }
+
+        if let target = mergeTarget {
+            // Merge into the target's tab group. After this, the source
+            // window becomes a tab in the target's group.
+            target.addTabbedWindowSafely(window, ordered: .above)
+            target.tabGroup?.selectedWindow = window
+            // Force a tab list refresh; the timer will catch up within ~500ms
+            // anyway, but doing it now keeps the UI snappy.
+            refreshTabs()
+            return
+        }
+
+        // (5) No merge target → detach into a standalone window. We move the
+        // window so the cursor sits roughly at its center, then call
+        // `tabGroup.removeWindow(_:)` to break it out of the tab group.
+        let frame = window.frame
+        let newOrigin = CGPoint(
+            x: endedAt.x - frame.width / 2,
+            y: endedAt.y - frame.height / 2
+        )
+        window.setFrameOrigin(newOrigin)
+
+        // `removeWindow` detaches `window` from its tab group, leaving it as
+        // a standalone NSWindow. The window remains visible/ordered.
+        tabGroup.removeWindow(window)
+        window.makeKeyAndOrderFront(nil)
+        refreshTabs()
+    }
+
+    // MARK: - Notification-driven Refresh
+
+    /// Register NotificationCenter observers for events that change the tab
+    /// list. This replaces the old 0.5s polling approach with event-driven
+    /// updates so N windows no longer burn N timers.
+    private func registerNotificationObservers() {
+        let center = NotificationCenter.default
+
+        // Tab mutations (move, close, goto)
+        let tabMutationNames: [Notification.Name] = [
+            .ghosttyMoveTab,
+            .ghosttyCloseTab,
+            .ghosttyCloseOtherTabs,
+            .ghosttyCloseTabsOnTheRight,
+            .ghosttyGotoTab,
+            .ghosttySetTabsPosition,
+        ]
+
+        for name in tabMutationNames {
+            let observer = center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                refreshTabs()
+            }
+            notificationObservers.append(observer)
+        }
+
+        // Window key-state changes (tab selection)
+        let windowNames: [Notification.Name] = [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didResignKeyNotification,
+        ]
+
+        for name in windowNames {
+            let observer = center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                refreshTabs()
+            }
+            notificationObservers.append(observer)
+        }
+
+        // Config changes (title override, color settings, etc.)
+        let configObserver = center.addObserver(
+            forName: .ghosttyConfigDidChange,
+            object: nil,
+            queue: .main
+        ) { _ in
+            refreshTabs()
+        }
+        notificationObservers.append(configObserver)
+    }
+
+    /// Remove all NotificationCenter observers registered by
+    /// registerNotificationObservers.
+    private func removeNotificationObservers() {
+        let center = NotificationCenter.default
+        for observer in notificationObservers {
+            center.removeObserver(observer)
+        }
+        notificationObservers.removeAll()
+    }
+
+    // MARK: - Safety-net Timer
+
+    /// 5-second safety-net timer that refreshes tabs in case a notification
+    /// was missed. This is a 10x reduction from the previous 0.5s polling
+    /// timer while still ensuring the tab list never goes permanently stale.
     private func startRefreshTimer() {
-        // Refresh tabs periodically to catch changes
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
             refreshTabs()
         }
     }

@@ -106,18 +106,35 @@ export fn ghostty_config_trigger(
     str: [*]const u8,
     len: usize,
 ) inputpkg.Binding.Trigger.C {
-    return config_trigger_(self, str[0..len]) catch |err| err: {
+    return config_trigger(self, str[0..len], .terminal) catch |err| err: {
         log.err("error finding trigger err={}", .{err});
         break :err .{};
     };
 }
 
-fn config_trigger_(
+export fn ghostty_config_trigger_for_menu(
+    self: *Config,
+    str: [*]const u8,
+    len: usize,
+) inputpkg.Binding.Trigger.C {
+    return config_trigger(self, str[0..len], .menu) catch |err| err: {
+        log.err("error finding trigger err={}", .{err});
+        break :err .{};
+    };
+}
+
+const TriggerLookup = enum { terminal, menu };
+
+fn config_trigger(
     self: *Config,
     str: []const u8,
+    lookup: TriggerLookup,
 ) !inputpkg.Binding.Trigger.C {
     const action = try inputpkg.Binding.Action.parse(str);
-    const trigger: inputpkg.Binding.Trigger = self.keybind.set.getTrigger(action) orelse .{};
+    const trigger: inputpkg.Binding.Trigger = switch (lookup) {
+        .terminal => self.keybind.set.getTrigger(action),
+        .menu => self.keybind.set.getTriggerForMenu(action),
+    } orelse .{};
     return trigger.cval();
 }
 
@@ -250,31 +267,36 @@ test "ghostty_config_trigger: default keybind" {
     var cfg = try Config.default(testing.allocator);
     defer cfg.deinit();
 
-    // Default commands should be fetchable through config_trigger_
+    // Default commands should be fetchable through config_trigger
     {
-        const trigger = try config_trigger_(&cfg, "open_config");
+        const trigger = try config_trigger(&cfg, "open_config", .terminal);
         try testing.expectEqual(.unicode, trigger.tag);
         try testing.expectEqual(@as(u32, ','), trigger.key.unicode);
     }
     {
-        const trigger = try config_trigger_(&cfg, "reload_config");
+        const trigger = try config_trigger(&cfg, "reload_config", .terminal);
         try testing.expectEqual(.unicode, trigger.tag);
         try testing.expectEqual(@as(u32, ','), trigger.key.unicode);
     }
     // Performable bindings are not tracked in the reverse map,
-    // so config_trigger_ should return a default (empty) trigger.
+    // so terminal lookup should return a default (empty) trigger.
     if (comptime builtin.target.os.tag.isDarwin()) {
-        const next = try config_trigger_(&cfg, "navigate_search:next");
+        const next = try config_trigger(&cfg, "navigate_search:next", .terminal);
         try testing.expectEqual(.physical, next.tag);
         try testing.expectEqual(.unidentified, next.key.physical);
 
-        const prev = try config_trigger_(&cfg, "navigate_search:previous");
+        const prev = try config_trigger(&cfg, "navigate_search:previous", .terminal);
         try testing.expectEqual(.physical, prev.tag);
         try testing.expectEqual(.unidentified, prev.key.physical);
     }
     {
-        const trigger = try config_trigger_(&cfg, "adjust_selection:left");
+        const trigger = try config_trigger(&cfg, "adjust_selection:left", .terminal);
         try testing.expectEqual(.physical, trigger.tag);
         try testing.expectEqual(.unidentified, trigger.key.physical);
+    }
+    {
+        const trigger = try config_trigger(&cfg, "paste_from_clipboard", .menu);
+        try testing.expectEqual(.unicode, trigger.tag);
+        try testing.expectEqual(@as(u32, 'v'), trigger.key.unicode);
     }
 }

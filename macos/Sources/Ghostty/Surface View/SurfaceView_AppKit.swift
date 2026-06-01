@@ -734,8 +734,7 @@ extension Ghostty {
                 // cached value is restored next time the terminal emits a
                 // color_change.
                 if let cached = self.backgroundColor,
-                   cached != self.derivedConfig.backgroundColor
-                {
+                   cached != self.derivedConfig.backgroundColor {
                     self.backgroundColor = nil
                 }
             }
@@ -1273,6 +1272,15 @@ extension Ghostty {
             // because there are other event listeners for that (i.e. AppDelegate's
             // local event handler).
             if !focused {
+                return false
+            }
+
+            // SwiftUI focus can lag behind AppKit first responder changes. If a
+            // native control such as a rename/search text field is the real first
+            // responder, let AppKit deliver menu key equivalents like Cmd+V to it.
+            if let firstResponder = window?.firstResponder,
+               firstResponder !== self,
+               (firstResponder as? NSTextView)?.delegate !== self {
                 return false
             }
 

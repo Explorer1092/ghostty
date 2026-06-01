@@ -33,6 +33,16 @@ class TerminalViewContainer: NSView {
         setup()
     }
 
+    /// Convenience init for tests that don't need a full TerminalView.
+    /// Uses an empty NSView as placeholder content.
+    #if DEBUG
+    init(testPlaceholderContent: NSView = NSView()) {
+        self.terminalView = testPlaceholderContent
+        super.init(frame: .zero)
+        setup()
+    }
+    #endif
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")

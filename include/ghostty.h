@@ -901,7 +901,6 @@ typedef enum {
   GHOSTTY_ACTION_TOGGLE_MAXIMIZE,
   GHOSTTY_ACTION_TOGGLE_FULLSCREEN,
   GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW,
-  GHOSTTY_ACTION_SET_TABS_POSITION,
   GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS,
   GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL,
   GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE,
@@ -958,12 +957,12 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+  GHOSTTY_ACTION_SET_TABS_POSITION,
 } ghostty_action_tag_e;
 
 typedef union {
   ghostty_action_split_direction_e new_split;
   ghostty_action_fullscreen_e toggle_fullscreen;
-  ghostty_action_tabs_position_e set_tabs_position;
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;
   ghostty_action_goto_split_e goto_split;
@@ -1000,6 +999,7 @@ typedef union {
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
+  ghostty_action_tabs_position_e set_tabs_position;
 } ghostty_action_u;
 
 typedef struct {
@@ -1089,6 +1089,9 @@ GHOSTTY_API bool ghostty_config_get(ghostty_config_t, void*, const char*, uintpt
 GHOSTTY_API ghostty_input_trigger_s ghostty_config_trigger(ghostty_config_t,
                                                               const char*,
                                                               uintptr_t);
+GHOSTTY_API ghostty_input_trigger_s ghostty_config_trigger_for_menu(ghostty_config_t,
+                                                                    const char*,
+                                                                    uintptr_t);
 GHOSTTY_API bool ghostty_config_key_is_binding(ghostty_config_t, ghostty_input_key_s);
 GHOSTTY_API uint32_t ghostty_config_diagnostics_count(ghostty_config_t);
 GHOSTTY_API ghostty_diagnostic_s ghostty_config_get_diagnostic(ghostty_config_t, uint32_t);

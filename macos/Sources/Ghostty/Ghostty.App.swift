@@ -1182,10 +1182,10 @@ extension Ghostty {
                     guard (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1 else { return false }
 
                     NotificationCenter.default.post(
-                        name: Notification.ghosttyGotoTab,
+                        name: .ghosttyGotoTab,
                         object: surfaceView,
                         userInfo: [
-                            Notification.GotoTabKey: tab,
+                            Ghostty.Notification.GotoTabKey: tab,
                         ]
                     )
 

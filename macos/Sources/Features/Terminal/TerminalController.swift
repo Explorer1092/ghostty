@@ -46,9 +46,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// changes in the list.
     private var tabWindowsHash: Int = 0
 
-    /// Parent window used to seed shared vertical tab sidebar state before AppKit
+    /// Parent window used to seed shared tab bar state before AppKit
     /// attaches this controller's window to the native tab group.
-    private weak var verticalTabsParentWindow: NSWindow?
+    private weak var tabBarParentWindow: NSWindow?
 
     /// The current position of the tab bar for this window. This is the
     /// single source of truth - SwiftUI views and AppKit accessories alike
@@ -58,26 +58,26 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// restarts.
     @Published var tabsPosition: Ghostty.TabsPosition
 
-    /// Shared model for the vertical tab sidebar. Native macOS tabs swap the whole
-    /// window content view, so each tab has its own SwiftUI sidebar instance. Sharing
-    /// the model keeps the sidebar stable when switching to a newly created tab.
-    private var verticalTabModelStorage: VerticalTabSidebar.TabModel?
+    /// Shared model for the tab bar. Native macOS tabs swap the whole
+    /// window content view, so each tab has its own SwiftUI tab bar instance. Sharing
+    /// the model keeps the bar stable when switching to a newly created tab.
+    private var tabBarModelStorage: TerminalTabBar.TabModel?
 
-    var verticalTabModel: VerticalTabSidebar.TabModel {
-        if let model = verticalTabModelStorage {
+    var tabBarModel: TerminalTabBar.TabModel {
+        if let model = tabBarModelStorage {
             return model
         }
 
-        if let parent = verticalTabsParentWindow,
+        if let parent = tabBarParentWindow,
            parent !== window,
            let parentController = parent.windowController as? TerminalController {
-            let model = parentController.verticalTabModel
-            verticalTabModelStorage = model
+            let model = parentController.tabBarModel
+            tabBarModelStorage = model
             return model
         }
 
-        let model = VerticalTabSidebar.TabModel()
-        verticalTabModelStorage = model
+        let model = TerminalTabBar.TabModel()
+        tabBarModelStorage = model
         return model
     }
 
@@ -132,7 +132,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         center.addObserver(
             self,
             selector: #selector(onGotoTab),
-            name: Ghostty.Notification.ghosttyGotoTab,
+            name: .ghosttyGotoTab,
             object: nil)
         center.addObserver(
             self,
@@ -477,7 +477,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Create a new window and add it to the parent
         let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
-        controller.verticalTabsParentWindow = parent
+        controller.tabBarParentWindow = parent
         controller.isBackgroundOpaque = parentController.isBackgroundOpaque
         controller.tabsPosition = parentController.tabsPosition
         guard let window = controller.window else { return controller }
@@ -589,6 +589,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if notification.object == nil {
             // Update our derived config
             self.derivedConfig = DerivedConfig(config)
+
+            // Update tabsPosition from config reload
+            self.tabsPosition = config.tabsPosition
 
             // If we have no surfaces in our window (is that possible?) then we update
             // our window appearance based on the root config. If we have surfaces, we
@@ -1438,9 +1441,30 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ghostty.toggleTerminalInspector(surface: surface)
     }
 
-    /// Apply a runtime tab position to the current window.
+    /// Guard to prevent recursive syncing of tabsPosition across sibling
+    /// tabs in the same tab group.
+    private var isSyncingTabsPosition = false
+
+    /// Apply a runtime tab position to the current window and propagate the
+    /// change to all sibling tabs in the same tab group so they stay consistent.
     func setTabsPosition(_ position: Ghostty.TabsPosition) {
         tabsPosition = position
+
+        // Sync to all sibling tabs in the same tab group so switching tabs
+        // doesn't revert the tab bar position. Guard against recursive
+        // propagation: when a sibling receives the sync, it sets its own
+        // tabsPosition directly without re-propagating.
+        guard !isSyncingTabsPosition else { return }
+        isSyncingTabsPosition = true
+        if let tabGroup = window?.tabGroup {
+            for tabWindow in tabGroup.windows {
+                if let siblingController = tabWindow.windowController as? TerminalController,
+                   siblingController !== self {
+                    siblingController.setTabsPosition(position)
+                }
+            }
+        }
+        isSyncingTabsPosition = false
     }
 
     @IBAction func setTabsPositionTop(_ sender: Any?) {
@@ -1530,23 +1554,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Get our target window
         let targetWindow = tabbedWindows[finalIndex]
-
-        // Moving tabs on macOS 26 RC causes very nasty visual glitches in the titlebar tabs.
-        // I believe this is due to messed up constraints for our hacky tab bar. I'd like to
-        // find a better workaround. For now, this improves things dramatically.
-        //
-        // Reproduction: titlebar tabs, create two tabs, "move tab left"
-        if #available(macOS 26, *) {
-            if window is TitlebarTabsTahoeTerminalWindow {
-                tabGroup.removeWindow(selectedWindow)
-                targetWindow.addTabbedWindowSafely(selectedWindow, ordered: action.amount < 0 ? .below : .above)
-                DispatchQueue.main.async {
-                    selectedWindow.makeKey()
-                }
-
-                return
-            }
-        }
 
         // Begin a group of window operations to minimize visual updates
         NSAnimationContext.beginGrouping()
